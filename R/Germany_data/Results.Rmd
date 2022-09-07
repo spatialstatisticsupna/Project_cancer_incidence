@@ -1,0 +1,1099 @@
+# Results of the predictive evaluation study using German incidence and mortality data
+
+The code to obtain the figures and tables in the subsection "Results" of the section "Predictive evaluation study using German incidence and mortality data" of the paper can be found in this R-code. The code is the same for the three cancer sites analysed (lung cancer in females, prostate cancer and breast cancer).
+
+Note: Due to confidentiality, incidence and mortality data from Germany are not shown in the repository. Therefore, some modifications have been made to the data in order to replicate the analysis performed.
+
+In a first step we will load the necessary cartography and the data of the cancer location we want to analyse. The cancer locations will be lung cancer in females, prostate cancer or breast cancer whose data can be found in `lungF.rda`, `prostate.rda` and `breast.rda` respectively. These data sets consist in the variables:
+
+-   `ID_area`: a region index. Takes values 1 to 16.
+
+-   `population`: population
+
+-   `counts`: observed incidence and mortality counts.
+
+-   `health_outcome`: takes value "inc" for cancer incidence and value "mort" for cancer mortality.
+
+Depending on the cancer location we want to analyse we will have to load the corresponding data.
+
+```{r}
+load("./Data/CartoGermanyStates.Rdata")
+carto <- carto_state
+```
+
+```{r}
+load("./Data/lungF.rda")
+data <- lungF
+
+# load("./Data/prostate.rda")
+# data <- prostate
+
+# load("./Data/breast.rda")
+# data <- breast
+```
+
+As the code is the same for all three cancer sites, we are going to create a variable with the name of the cancer site we are analysing. In this way we can use it when saving results and not have to change the file names manually.
+
+```{r}
+cancer.location <- "Lung"  #"Prostate"  #"Breast"
+```
+
+We create a folder to save the figures
+
+```{r}
+eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/figures'))
+{dir.create('./",cancer.location,"/figures')}")))
+```
+
+## Results of Strategy 1 and Strategy 2
+
+In this section you will find the code to obtain the figures and tables of the paper and the Supporting Information corresponding to Strategy 1 and Strategy 2.
+
+We start by loading the necessary libraries to be able to obtain the figures.
+
+```{r}
+library(ggplot2)
+library(grid)
+library("MASS")
+library(INLA)
+```
+
+We define a number of variables. Specifically, `known.per` where we introduce the defined coverage percentages, `removing.strategy` where the names of the strategies we are going to analyse are found and `missing.areas` a list where we introduce which areas are added as unknown in each coverage percentage.
+
+```{r}
+known.per <- c("100","90-80","70-60","50","40","30")
+removing.strategy <- c("S1")#,"S2")
+
+missing.areas <- list(
+  list(
+    c(),
+    c(2,5),
+    c(16,7,8,6),
+    c(13,4,15),
+    c(3,14),
+    c(9)
+  )#,
+  # list(
+  #   c(),
+  #   c(1,11),
+  #   c(2,4,5),
+  #   c(7,6,15),
+  #   c(3,14),
+  #   c(9)
+  # )
+)
+
+```
+
+In the following we define the selected models in each type of multivariate model. For this it is important to maintain the order used in the `removing.strategy` vector. We define
+
+-   `model.type`: the name of the multivariate models that we have proposed, i.e. SCM for the Shared Component Models and MM for the M-models.
+
+-   `selec.SCM`: the shared component models selected in each strategy. For Model 1 we use *unst*, for Model 2 *unst2* and for Model 3 *unst2_indep*.
+
+-   `selec.priors`: the spatial prior selected in each strategy for the M-models.
+
+-   `selec.method`: the modeling method selected in each strategy for the M-models.
+
+```{r}
+#Change according to the cancer site analyse
+model.type <- c("SCM","MM")
+selec.SCM <- c("unst2_indep","unst")
+selec.priors <- c("BYM2","BYM2")
+selec.method <- c("RE","FE")
+```
+
+### Figures of assessment measures
+
+In this section you will find the code to obtain the Figure 3 of the paper, the Figures 2 and 3 of Supporting Information 2 and the Figures 5, 6 and 7 of Supporting Information 2.
+
+First, we define the names of the assessment measures to be analysed.
+
+```{r}
+criteria <- c("ARB","IS","DSS")
+```
+
+The code to make the figures is as follows:
+
+```{r}
+for (o in 1:length(removing.strategy)) {
+  ## Number of areas and diseases
+  n<- length(unique(data$ID_area))
+  
+  diseases <- c("inc","mort")
+  J <- length(diseases)
+  
+  areas <- c()
+  for (cr in 1:length(criteria)) {
+    eval(parse(text = paste0(criteria[cr]," <- NULL")))
+  }
+  
+  for (j in 2:length(known.per)) {
+    if(selec.SCM[o]=="unst"){
+      ##Estimated results
+      ## Model 1: Specific intercept + Unstructure 1 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model1_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 1"
+    }
+    else if(selec.SCM[o]=="unst2"){
+      ## Model 2: Specific intercept + Unstructure 2 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model2_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 2"
+    }
+    else{
+      ## Model 3: Specific intercept + Unstructure 2 disease indep
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model3_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 3"
+    }
+    
+    ## Model 2: Specific intercept
+    eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/M_Model/MModel_results_",cancer.location,"_",selec.priors[o],"_",selec.method[o],"_",removing.strategy[o],".RData')")))
+
+    
+    areas <- c(areas,missing.areas[[o]][[j]])
+    for (k in 1:length(model.type)) {
+      if(model.type[k]=="SCM"){
+        eval(parse(text = paste0("t_est <- result_shared_",selec.SCM[o],"$summary.fitted.values[,1]*10^5")))
+        eval(parse(text = paste0("LL <-result_shared_",selec.SCM[o],"$summary.fitted.values[,3]*10^5")))
+        eval(parse(text = paste0("UL <-result_shared_",selec.SCM[o],"$summary.fitted.values[,5]*10^5")))
+        eval(parse(text = paste0("sd_c_est <- sqrt(data$population*result_shared_",selec.SCM[o],"$summary.fitted.values[,1]+(data$population*result_shared_",selec.SCM[o],"$summary.fitted.values[,2])^2)")))
+        eval(parse(text = paste0("mean_c_est <- data$population*result_shared_",selec.SCM[o],"$summary.fitted.values[,1]")))
+        eval(parse(text = paste0("res <- result_shared_",selec.SCM[o])))
+      }
+      else if(model.type[k]=="MM"){
+        eval(parse(text = paste0("t_est <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,1]*10^5")))
+        eval(parse(text = paste0("LL <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,3]*10^5")))
+        eval(parse(text = paste0("UL <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,5]*10^5")))
+        eval(parse(text = paste0("sd_c_est <- sqrt(data$population*result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,1]+(data$population*result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,2])^2)")))
+        eval(parse(text = paste0("mean_c_est <- data$population*result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,1]")))
+        eval(parse(text = paste0("res <- result_",selec.priors[o],"_",selec.method[o],"_specI")))
+      }
+      
+      t_obs_inc <- data$count[which(data$health_outcome=="inc")]/data$population[which(data$health_outcome=="inc")]*10^5
+      t_obs_mort <- data$count[which(data$health_outcome=="mort")]/data$population[which(data$health_outcome=="mort")]*10^5
+      
+      ARB_inc <- abs(t_est[areas]-t_obs_inc[areas])/t_obs_inc[areas]
+      
+      CI_inc <- UL[areas]-LL[areas]
+      
+      IS_inc <- CI_inc
+      for (i in 1:length(areas)) {
+        if(t_obs_inc[areas[i]]<LL[areas[i]]){
+          IS_inc[i] <- IS_inc[i] + 2/0.05*(LL[areas[i]]-t_obs_inc[areas[i]])
+        }
+        else if(t_obs_inc[areas[i]]>UL[areas[i]]){
+          IS_inc[i] <- IS_inc[i] + 2/0.05*(t_obs_inc[areas[i]]-UL[areas[i]])
+        }
+      }
+      
+      count <- data$counts
+      
+      DSS_inc <- ((count[areas]-mean_c_est[areas])/sd_c_est[areas])^2+2*log(sd_c_est[areas])
+      DSS_mort <- ((count[areas + n]-mean_c_est[areas + n])/sd_c_est[areas + n])^2+2*log(sd_c_est[areas + n])
+      
+      for (cr in 1:length(criteria)) {
+        eval(parse(text = paste0(criteria[cr]," <- rbind(",criteria[cr],", cbind(rep(known.per[j],length(areas)),areas,
+                              rep(model.type[k],length(areas)),",criteria[cr],"_inc))")))
+      }
+      
+    }
+  }
+  
+  pd <- position_dodge(0.4)
+  
+  pdf(file = paste0("./",cancer.location,"/figures/",removing.strategy[o],"_Assessment_Criteria.pdf"), width = 25 , height= 10)
+  
+  for (cr in 1:length(criteria)) {
+    eval(parse(text = paste0(criteria[cr]," <- data.frame(",criteria[cr],")")))
+    eval(parse(text = paste0("colnames(",criteria[cr],") <- c('known.per','ID_area','Model','",criteria[cr],"')")))
+  eval(parse(text = paste0(criteria[cr],"$ID_area <- factor(",criteria[cr],"$ID_area,levels = areas)")))
+  eval(parse(text = paste0(criteria[cr],"$",criteria[cr]," <- as.numeric(",criteria[cr],"$",criteria[cr],")")))
+  
+  if (criteria[cr]=="ARB"){
+    palet <- c("#d9ef8b","#a6d96a", "#66bd63", "#1a9850", "#006837")  
+  }
+  else if (criteria[cr]=="IS"){
+    palet <- c("#c7eae5","#80cdc1", "#35978f", "#01665e", "#003c30")
+  }
+  else {
+    palet <- c("#fee08b","#fdae61", "#f46d43", "#d53e4f", "#9e0142")
+  }
+  p1 <- ggplot()
+  
+  eval(parse(text = paste0("p1 <- p1 + geom_point(data = subset(",criteria[cr],", known.per == '30'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7) + geom_point(data = subset(",criteria[cr],", known.per == '40'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7) + geom_point(data = subset(",criteria[cr],", known.per == '50'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7) + geom_point(data = subset(",criteria[cr],", known.per == '70-60'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7) + geom_point(data = subset(",criteria[cr],", known.per == '90-80'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7)")))
+  
+
+   p1 <- p1 + ggtitle(paste(cancer.location, "cancer")) +
+    labs(x = "ID area", colour = "Population\ncovered") +
+    scale_colour_manual(breaks=c("90-80", "70-60", "50", "40", "30"),
+                        labels = c("90-80" = "90-80%", "70-60" = "70-60%", 
+                                   "50" = "50%", "40" = "40%", "30" = "30%"),
+                        values = palet) + 
+    scale_shape_manual(labels = c(paste(selec.priors[o]," ",selec.method[o]), paste(model.SCM)), values = c(17,16)) +
+    theme(text = element_text(size = 35), legend.position = "top") 
+  print(p1)
+
+  }
+  dev.off()
+
+}
+```
+
+### Figure of the credible interval
+
+In this section you will find the code to obtain the Figure 4 of the paper, and the Figure 8 of Supporting Information 2.
+
+```{r}
+for (o in 1:length(removing.strategy)) {
+  ## Number of areas and diseases
+  n<- length(unique(data$ID_area))
+  
+  diseases <- c("inc","mor")
+  J <- length(diseases)
+  
+  areas <- c()
+  datac <- NULL
+  plot <- NULL
+  for (j in 2:length(known.per)) {
+     if(selec.SCM[o]=="unst"){
+      ##Estimated results
+      ## Model 1: Specific intercept + Unstructure 1 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model1_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 1"
+    }
+    else if(selec.SCM[o]=="unst2"){
+      ## Model 2: Specific intercept + Unstructure 2 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model2_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 2"
+    }
+    else{
+      ## Model 3: Specific intercept + Unstructure 2 disease indep
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model3_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 3"
+    }
+    
+    ## Model 2: Specific intercept
+    eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/M_Model/MModel_results_",cancer.location,"_",selec.priors[o],"_",selec.method[o],"_",removing.strategy[o],".RData')")))
+
+  
+    areas <- c(areas,missing.areas[[o]][[j]])
+    for (k in 1:length(model.type)) {
+      if(model.type[k]=="SCM"){
+        eval(parse(text = paste0("t_est <- result_shared_",selec.SCM[o],"$summary.fitted.values[,1]*10^5")))
+        eval(parse(text = paste0("LL <-result_shared_",selec.SCM[o],"$summary.fitted.values[1:n,3]*10^5")))
+        eval(parse(text = paste0("UL <-result_shared_",selec.SCM[o],"$summary.fitted.values[1:n,5]*10^5")))
+        
+      }
+      else if(model.type[k]=="MM"){
+        eval(parse(text = paste0("t_est <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,1]*10^5")))
+        eval(parse(text = paste0("LL <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,3]*10^5")))
+        eval(parse(text = paste0("UL <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,5]*10^5")))
+        
+      }
+      
+      data.inf <- cbind(rep(known.per[j],length(areas)),
+                        areas,
+                        rep(model.type[k],length(areas)),
+                        round(t_est[areas],2),
+                        round(LL[areas],2),
+                        round(UL[areas],2),
+                        round(data$counts[areas]/data$population[areas]*10^5,2))
+      
+      if(model.type[k]=="SCM"){
+        data.inf <- cbind(data.inf,rep(model.SCM,length(areas)))
+      }
+      else if(model.type[k]=="MM"){
+        data.inf <- cbind(data.inf,rep(paste(selec.priors[o]," ",selec.method[o]),length(areas)))
+      }
+      datac <- rbind(datac,data.inf)
+      
+      
+    }
+  }
+  
+  datac <- data.frame(datac)
+  colnames(datac) <- c("known.per","ID_area","Model","mean","LL","UL","observed","type")
+  datac$ID_area <- factor(datac$ID_area,levels = areas)
+  datac$mean <- as.numeric(datac$mean)
+  datac$LL <- as.numeric(datac$LL)
+  datac$UL <- as.numeric(datac$UL)
+  datac$observed <- as.numeric(datac$observed)
+  datac$disease <- paste(cancer.location," cancer")
+  
+  for (i in 1:length(areas)) {
+    d <- dim(datac[which(datac$ID_area==areas[i] & datac$Model=="SCM"),])[1]
+    if(d< (length(known.per)-1)){
+      model.name <- unique(datac$type[which(datac$ID_area==areas[i])])
+      
+      data.aggregate <- cbind(known.per[2:(length(known.per)-d)],rep(areas[i],length(known.per)-d-1),
+                              rep(model.type,length(known.per)-d-1),
+                              rep("NA",length(known.per)-d-1),rep("NA",length(known.per)-d-1),
+                              rep("NA",length(known.per)-d-1),
+                              round(data$counts[areas[i]]/data$population[areas[i]]*10^5,2),
+                              rep(model.name,length(known.per)-d-1))
+
+      data.aggregate <- data.frame(data.aggregate)
+      colnames(data.aggregate)<- c("known.per","ID_area","Model","mean","LL","UL","observed","type")
+      data.aggregate$ID_area <- factor(data.aggregate$ID_area,levels = areas)
+      data.aggregate$mean <- as.numeric(data.aggregate$mean)
+      data.aggregate$LL <- as.numeric(data.aggregate$LL)
+      data.aggregate$UL <- as.numeric(data.aggregate$UL)
+      data.aggregate$observed <- as.numeric(data.aggregate$observed)
+      data.aggregate$disease <- paste(cancer.location," cancer")
+      
+      datac <- rbind(datac,data.aggregate)
+
+    }
+    
+    pd <- position_dodge(0.2)
+    p1 <- ggplot(data = subset(datac, ID_area == areas[i]), aes(x=known.per, 
+                                                                y=mean, 
+                                                                colour=type)) +
+      theme_bw() +
+      geom_errorbar(aes(ymin=LL, ymax=UL), width=1, position=pd, size =1.5)  +
+      geom_point(position=pd, size=5)+
+      scale_x_discrete(limits = c("90-80", "70-60","50", "40", "30"),
+                       labels=c("90-80" = "90-80%", "70-60" = "70-60%",
+                                "50" = "50%", "40" = "40%", "30" = "30%")) +
+      geom_hline(yintercept = subset(datac, ID_area == areas[i])$observed[1],
+                 size=1)
+      
+        
+    if (i==1 | i==floor((length(areas)/2)+1)){
+      p1 <- p1 + labs( y = "Incidence rate") +
+        scale_shape_manual(labels = c(paste(selec.priors[o]," ",selec.method[o]), paste(model.SCM))) + 
+            theme(text = element_text(size = 35), legend.position="top",
+                  axis.text.x=element_blank(), axis.ticks.x = element_blank(),
+                  axis.title.x = element_blank())
+        
+      
+      if (cancer.location == "Lung"){
+        p1 <- p1 + facet_wrap(~disease) 
+        
+        if (max(datac$UL[which(datac$ID_area==areas[i])], na.rm=T)<112){
+          p1 <- p1 + 
+            theme(axis.title.y = element_text(margin = margin(t = 0, r = 18, b = 0, 
+                                                              l = 0)))
+        }
+      }
+      else if (cancer.location == "Breast"){
+        p1 <- p1 + facet_grid(vars(ID_area),vars(disease)) +
+          theme(axis.title.y = element_blank())
+      }
+      else {
+        p1 <- p1 + facet_wrap(~disease) +
+          theme(axis.title.y = element_blank())
+      }
+      plot[[i]] <- p1
+    }
+    else if (i==length(areas) | i==floor((length(areas)/2))) {
+      p1 <- p1 + labs(x = "Population covered", y = "Incidence rate") +
+          theme(text = element_text(size = 35), legend.position = "none",
+                axis.text.x = element_text(angle = 70, vjust = 0.3, hjust = 0.2)) 
+      
+      if (cancer.location == "Lung"){
+        if (max(datac$UL[which(datac$ID_area==areas[i])], na.rm=T)<112) {
+          p1 <- p1 + 
+            theme(axis.title.y = element_text(margin = margin(t = 0, r = 18, b = 0, 
+                                                              l = 0)))
+        }
+      }
+      else if (cancer.location == "Breast"){
+        p1 <- p1 +
+          facet_grid(vars(ID_area)) +
+          theme(axis.title.y = element_blank())
+      }
+      else{
+        p1 <- p1 +
+          theme(axis.title.y = element_blank())
+      }
+      plot[[i]] <- p1
+    }
+    else{
+      p1 <- p1 + labs(x = "Population covered", y = "Incidence rate") +
+          theme(text = element_text(size = 35), legend.position = "none",
+                axis.text.x=element_blank(), axis.ticks.x = element_blank(),
+                axis.title.x = element_blank())
+      if (cancer.location == "Lung"){
+        if (max(datac$UL[which(datac$ID_area==areas[i])], na.rm=T)<112) {
+          p1 <- p1 +
+            theme(axis.title.y = element_text(margin = margin(t = 0, r = 18,
+                                                              b = 0, l = 0)))
+        }
+      }
+      else if (cancer.location == "Breast"){
+        p1 <- p1 +
+            theme(axis.title.y = element_blank()) +
+            facet_grid(vars(ID_area))
+      }
+      else {
+         p1 <- p1 +
+            theme(axis.title.y = element_blank())
+      }
+      plot[[i]] <- p1
+    }
+  }
+  
+  pdf(file = paste0("./",cancer.location,"/figures/",removing.strategy[o],"_CI_1.pdf"),
+      width = 8 , height= 35)
+  grid.newpage()
+  pushViewport(viewport(layout = grid.layout(
+    nrow = floor(length(areas)/2)+2,
+    ncol = 3,
+    heights = c(0.035,rep(0.94/floor(length(areas)/2),floor(length(areas)/2)),0.025),
+    widths = c(0.02,0.92,0.06)
+  )))
+  print(plot[[1]], vp = viewport(layout.pos.row = 1:2, layout.pos.col = 1:2))
+  for (i in 2:(floor(length(areas)/2)-1)) {
+    print(plot[[i]], vp = viewport(layout.pos.row = i+1, layout.pos.col = 1:2))
+  }
+  print(plot[[floor(length(areas)/2)]], vp = viewport(
+    layout.pos.row = (floor(length(areas)/2)+1):(floor(length(areas)/2)+2), 
+    layout.pos.col = 1:2))
+  dev.off()
+  
+  pdf(file = paste0("./",cancer.location,"/figures/",removing.strategy[o],"_CI_2.pdf"),
+      width = 8 , height= 35)
+  grid.newpage()
+  pushViewport(viewport(
+    layout = grid.layout(
+    nrow = floor(length(areas)/2)+2,
+    ncol = 3,
+    heights = c(0.035,rep(0.94/floor(length(areas)/2),floor(length(areas)/2)),0.025),
+    widths = c(0.02,0.92,0.06)
+  )))
+  
+  print(plot[[floor(length(areas)/2)+1]], vp = viewport(layout.pos.row = 1:2,
+                                                 layout.pos.col = 1:2))
+  for (i in (floor(length(areas)/2)+2):(length(areas)-1)) {
+    print(plot[[i]], vp = viewport(layout.pos.row = i-floor(length(areas)/2)+1, 
+                                   layout.pos.col = 1:2))
+  }
+  print(plot[[length(areas)]], vp = viewport(
+    layout.pos.row = (floor(length(areas)/2)+1):(floor(length(areas)/2)+2), 
+    layout.pos.col = 1:2))
+  
+  dev.off()
+  
+
+}
+```
+
+### Table National Incidence
+
+In this section you will find the code to obtain the Table 1 of the paper, and the Table 1 of Supporting Information 2.
+
+```{r}
+for (o in 1:length(removing.strategy)) {
+  national.table <- matrix(NA, nrow = length(model.type)*2, ncol =length(known.per))
+  
+  national.table[c(1,3),1] <- sum(data$counts[which(data$health_outcome=="inc")])
+  for (j in 2:length(known.per)) {
+    if(selec.SCM[o]=="unst"){
+      ##Estimated results
+      ## Model 1: Specific intercept + Unstructure 1 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model1_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 1"
+      eval(parse(text = paste0("res <- result_shared_",selec.SCM[o])))
+    }
+    else if(selec.SCM[o]=="unst2"){
+      ## Model 2: Specific intercept + Unstructure 2 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model2_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 2"
+      eval(parse(text = paste0("res <- result_shared_",selec.SCM[o])))
+    }
+    else{
+      ## Model 3: Specific intercept + Unstructure 2 disease indep
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model3_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 3"
+      eval(parse(text = paste0("res <- result_shared_",selec.SCM[o])))
+    }
+    
+    
+    n.samples <- 5000
+    samples.rate <- inla.posterior.sample(n.samples, res, seed=11052022)
+    
+    fun = function(...) {
+      exp(Predictor)
+    }
+    samples.rate.exp = inla.posterior.sample.eval(fun, samples.rate, seed=11052022)
+    
+    set.seed(18052022)
+    
+    n=16
+    count <- NULL
+    for (i in 1:n) {
+      eval(parse(text = paste0("count[[",i,"]] <- rpois(n.samples,data$population[i]*samples.rate.exp[i,])")))
+    }
+    
+    
+    ##National incidence distribution:
+    national.count <- Reduce(`+`,count)
+    L <- quantile(national.count, probs = c(0.025,0.975))
+    
+    national.table[1,j] <- round(mean(national.count),0)
+    national.table[2,j] <- paste("(",round(mean(L[1]),0)," - ",round(mean(L[2]),0),")")
+    
+    rm(list = c("samples.rate","samples.rate.exp","national.count"))
+    
+    ## Model 2: Specific intercept
+    eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/M_Model/MModel_results_",cancer.location,"_",selec.priors[o],"_",selec.method[o],"_",removing.strategy[o],".RData')")))
+    eval(parse(text = paste0("res <- result_",selec.priors[o],"_",selec.method[o],"_specI")))
+    
+    
+    
+    n.samples <- 5000
+    samples.rate <- inla.posterior.sample(n.samples, res, seed = 11052022)
+    
+    fun = function(...) {
+      exp(Predictor)
+    }
+    samples.rate.exp = inla.posterior.sample.eval(fun, samples.rate, seed = 11052022)
+    
+    set.seed(18052022)
+    n=16
+    count <- NULL
+    for (i in 1:n) {
+      eval(parse(text = paste0("count[[",i,"]] <- rpois(n.samples,data$population[i]*samples.rate.exp[i,])")))
+    }
+
+    ##National incidence distribution:
+    national.count <- Reduce(`+`,count)
+    L <- quantile(national.count, probs = c(0.025,0.975))
+
+    national.table[3,j] <- round(mean(national.count),0)
+    national.table[4,j] <- paste("(",round(mean(L[1]),0)," - ",round(mean(L[2]),0),")")
+    
+  }
+  
+  national.table <- cbind(c(paste(model.SCM),"","Model 3",""),
+                  c("SCM","",paste(selec.priors[o]," ",selec.method[o]),""),
+                  national.table)
+  national.table <- rbind(c(removing.strategy[o]," ","Observed",known.per[-1]),
+                               national.table)
+  
+  latex_table<-xtable::xtable(national.table, caption=paste0("National Incidence. Strategy",removing.strategy[o]), label="tab3", digits=3)
+  xtable::print.xtable(latex_table, include.rownames = FALSE, comment=FALSE, caption.placement = getOption("xtable.caption.placement", "top"))
+  
+}
+```
+
+## Results of Strategy 3
+
+In this section you will find the code to obtain the figures and tables of the Supporting Information 2 corresponding to Strategy 3.
+
+We start by loading the necessary libraries to be able to obtain the figures.
+
+```{r}
+library(ggplot2)
+library(grid)
+library("MASS")
+library(INLA)
+```
+
+We define a number of variables. Specifically, `known.per` where we introduce the defined coverage percentages, `removing.strategy` where the names of the strategies we are going to analyse are found and `missing.areas` a list where we introduce which areas are added as unknown in each coverage percentage.
+
+```{r}
+known.per <- c("100","90-80","70-60","50","40","30","20")
+removing.strategy <- c("S3")
+
+missing.areas <- list(
+  list(
+    c(),
+    c(1),
+    c(7),
+    c(10),
+    c(9),
+    c(2,5,15),
+    c(3,12)
+  )
+)
+
+```
+
+In the following we define the selected models in each type of multivariate model. For this it is important to maintain the order used in the `removing.strategy` vector. We define
+
+-   `model.type`: the name of the multivariate models that we have proposed, i.e. SCM for the Shared Component Models and MM for the M-models.
+
+-   `selec.SCM`: the shared component models selected in each strategy. For Model 1 we use *unst*, for Model 2 *unst2* and for Model 3 *unst2_indep*.
+
+-   `selec.priors`: the spatial prior selected in each strategy for the M-models.
+
+-   `selec.method`: the modeling method selected in each strategy for the M-models.
+
+```{r}
+model.type <- c("SCM","MM")
+selec.SCM <- c("unst2")
+selec.priors <- c("BYM2")
+selec.method <- c("FE")
+```
+
+### Figures of assessment measures
+
+In this section you will find the code to obtain the Figures 10 and 11, 12 of Supporting Information 2.
+
+First, we define the names of the assessment measures to be analysed.
+
+```{r}
+criteria <- c("ARB","IS","DSS")
+```
+
+The code to make the figures is as follows:
+
+```{r}
+for (o in 1:length(removing.strategy)) {
+  ## Number of areas and diseases
+  n<- length(unique(data$ID_area))
+  
+  diseases <- c("inc","mort")
+  J <- length(diseases)
+  
+  areas <- c()
+  for (cr in 1:length(criteria)) {
+    eval(parse(text = paste0(criteria[cr]," <- NULL")))
+  }
+  
+  for (j in 2:length(known.per)) {
+    if(selec.SCM[o]=="unst"){
+      ##Estimated results
+      ## Model 1: Specific intercept + Unstructure 1 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model1_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 1"
+    }
+    else if(selec.SCM[o]=="unst2"){
+      ## Model 2: Specific intercept + Unstructure 2 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model2_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 2"
+    }
+    else{
+      ## Model 3: Specific intercept + Unstructure 2 disease indep
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model3_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 3"
+    }
+    
+    ## Model 4: Specific intercept
+    eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/M_Model/MModel_results_",cancer.location,"_",selec.priors[o],"_",selec.method[o],"_",removing.strategy[o],".RData')")))
+
+    
+    areas <- c(areas,missing.areas[[o]][[j]])
+    for (k in 1:length(model.type)) {
+      if(model.type[k]=="SCM"){
+        eval(parse(text = paste0("t_est <- result_shared_",selec.SCM[o],"$summary.fitted.values[,1]*10^5")))
+        eval(parse(text = paste0("LL <-result_shared_",selec.SCM[o],"$summary.fitted.values[,3]*10^5")))
+        eval(parse(text = paste0("UL <-result_shared_",selec.SCM[o],"$summary.fitted.values[,5]*10^5")))
+        eval(parse(text = paste0("sd_c_est <- sqrt(data$population*result_shared_",selec.SCM[o],"$summary.fitted.values[,1]+(data$population*result_shared_",selec.SCM[o],"$summary.fitted.values[,2])^2)")))
+        eval(parse(text = paste0("mean_c_est <- data$population*result_shared_",selec.SCM[o],"$summary.fitted.values[,1]")))
+        eval(parse(text = paste0("res <- result_shared_",selec.SCM[o])))
+      }
+      else if(model.type[k]=="MM"){
+        eval(parse(text = paste0("t_est <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,1]*10^5")))
+        eval(parse(text = paste0("LL <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,3]*10^5")))
+        eval(parse(text = paste0("UL <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,5]*10^5")))
+        eval(parse(text = paste0("sd_c_est <- sqrt(data$population*result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,1]+(data$population*result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,2])^2)")))
+        eval(parse(text = paste0("mean_c_est <- data$population*result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,1]")))
+        eval(parse(text = paste0("res <- result_",selec.priors[o],"_",selec.method[o],"_specI")))
+      }
+      
+      t_obs_inc <- data$count[which(data$health_outcome=="inc")]/data$population[which(data$health_outcome=="inc")]*10^5
+      t_obs_mort <- data$count[which(data$health_outcome=="mort")]/data$population[which(data$health_outcome=="mort")]*10^5
+      
+      ARB_inc <- abs(t_est[areas]-t_obs_inc[areas])/t_obs_inc[areas]
+      
+      
+      CI_inc <- UL[areas]-LL[areas]
+      
+      IS_inc <- CI_inc
+      for (i in 1:length(areas)) {
+        if(t_obs_inc[areas[i]]<LL[areas[i]]){
+          IS_inc[i] <- IS_inc[i] + 2/0.05*(LL[areas[i]]-t_obs_inc[areas[i]])
+        }
+        else if(t_obs_inc[areas[i]]>UL[areas[i]]){
+          IS_inc[i] <- IS_inc[i] + 2/0.05*(t_obs_inc[areas[i]]-UL[areas[i]])
+        }
+      }
+      
+      count <- data$counts
+      
+      DSS_inc <- ((count[areas]-mean_c_est[areas])/sd_c_est[areas])^2+2*log(sd_c_est[areas])
+      DSS_mort <- ((count[areas + n]-mean_c_est[areas + n])/sd_c_est[areas + n])^2+2*log(sd_c_est[areas + n])
+      
+      for (cr in 1:length(criteria)) {
+        eval(parse(text = paste0(criteria[cr]," <- rbind(",criteria[cr],", cbind(rep(known.per[j],length(areas)),areas,
+                              rep(model.type[k],length(areas)),",criteria[cr],"_inc))")))
+      }
+      
+    }
+  }
+  
+  pd <- position_dodge(0.4)
+  
+  pdf(file = paste0("./",cancer.location,"/figures/",removing.strategy[o],"_Assessment_Criteria.pdf"), width = 25 , height= 10)
+  
+  for (cr in 1:length(criteria)) {
+    eval(parse(text = paste0(criteria[cr]," <- data.frame(",criteria[cr],")")))
+    eval(parse(text = paste0("colnames(",criteria[cr],") <- c('known.per','ID_area','Model','",criteria[cr],"')")))
+  eval(parse(text = paste0(criteria[cr],"$ID_area <- factor(",criteria[cr],"$ID_area,levels = areas)")))
+  eval(parse(text = paste0(criteria[cr],"$",criteria[cr]," <- as.numeric(",criteria[cr],"$",criteria[cr],")")))
+  
+  
+  if (criteria[cr]=="ARB"){
+    palet <- c("#f7f7f7","#d9ef8b","#a6d96a", "#66bd63", "#1a9850", "#006837")  
+  }
+  else if (criteria[cr]=="IS"){
+    palet <- c("#f5f5f5","#c7eae5","#80cdc1", "#35978f", "#01665e", "#003c30")
+  }
+  else {
+    palet <- c("#ffffbf","#fee08b","#fdae61", "#f46d43", "#d53e4f", "#9e0142")
+  }
+  
+  p1 <- ggplot()
+  
+  eval(parse(text = paste0("p1 <- p1 + geom_point(data = subset(",criteria[cr],", known.per == '20'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7) + geom_point(data = subset(",criteria[cr],", known.per == '30'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7) + geom_point(data = subset(",criteria[cr],", known.per == '40'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7) + geom_point(data = subset(",criteria[cr],", known.per == '50'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7) + geom_point(data = subset(",criteria[cr],", known.per == '70-60'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7) + geom_point(data = subset(",criteria[cr],", known.per == '90-80'), aes(x = ID_area, y = ",criteria[cr],", colour = known.per, shape = Model), position = pd,  size=7)")))
+  
+
+   p1 <- p1 + ggtitle(paste(cancer.location, "cancer")) +
+    labs(x = "ID area", colour = "Population\ncovered") +
+    scale_colour_manual(breaks=c("90-80", "70-60", "50", "40", "30", "20"),
+                        labels = c("90-80" = "86.85%", "70-60" = "79.38%", "50" = "57.67%", "40" = "47.98%", "30" = "28.14%", "20" = "19.02%"),
+                        values = palet) + 
+    scale_shape_manual(labels = c(paste(selec.priors[o]," ",selec.method[o]), paste(model.SCM)), values = c(17,16)) +
+    theme(text = element_text(size = 35), legend.position = "top") 
+  print(p1)
+
+  }
+  dev.off()
+
+}
+```
+
+### Figure of the credible interval
+
+In this section you will find the code to obtain the Figure 13 of Supporting Information 2.
+
+```{r}
+for (o in 1:length(removing.strategy)) {
+  ## Number of areas and diseases
+  n<- length(unique(data$ID_area))
+  
+  diseases <- c("inc","mor")
+  J <- length(diseases)
+  
+  areas <- c()
+  datac <- NULL
+  plot <- NULL
+  for (j in 2:length(known.per)) {
+     if(selec.SCM[o]=="unst"){
+      ##Estimated results
+      ## Model 1: Specific intercept + Unstructure 1 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model1_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 1"
+    }
+    else if(selec.SCM[o]=="unst2"){
+      ## Model 2: Specific intercept + Unstructure 2 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model2_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 2"
+    }
+    else{
+      ## Model 3: Specific intercept + Unstructure 2 disease indep
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model3_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 3"
+    }
+    
+    ## Model 2: Specific intercept
+    eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/M_Model/MModel_results_",cancer.location,"_",selec.priors[o],"_",selec.method[o],"_",removing.strategy[o],".RData')")))
+
+  
+    areas <- c(areas,missing.areas[[o]][[j]])
+    for (k in 1:length(model.type)) {
+      if(model.type[k]=="SCM"){
+        eval(parse(text = paste0("t_est <- result_shared_",selec.SCM[o],"$summary.fitted.values[,1]*10^5")))
+        eval(parse(text = paste0("LL <-result_shared_",selec.SCM[o],"$summary.fitted.values[1:n,3]*10^5")))
+        eval(parse(text = paste0("UL <-result_shared_",selec.SCM[o],"$summary.fitted.values[1:n,5]*10^5")))
+        
+      }
+      else if(model.type[k]=="MM"){
+        eval(parse(text = paste0("t_est <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,1]*10^5")))
+        eval(parse(text = paste0("LL <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,3]*10^5")))
+        eval(parse(text = paste0("UL <- result_",selec.priors[o],"_",selec.method[o],"_specI$summary.fitted.values[,5]*10^5")))
+        
+      }
+      
+      ddata.inf <- cbind(rep(known.per[j],length(areas)),
+                        areas,
+                        rep(model.type[k],length(areas)),
+                        round(t_est[areas],2),
+                        round(LL[areas],2),
+                        round(UL[areas],2),
+                        round(data$counts[areas]/data$population[areas]*10^5,2))
+      
+      if(model.type[k]=="SCM"){
+        data.inf <- cbind(data.inf,rep(model.SCM,length(areas)))
+      }
+      else if(model.type[k]=="MM"){
+        data.inf <- cbind(data.inf,rep(paste(selec.priors[o]," ",selec.method[o]),length(areas)))
+      }
+      datac <- rbind(datac,data.inf)
+      
+    }
+  }
+  
+  datac <- data.frame(datac)
+  colnames(datac) <- c("known.per","ID_area","Model","mean","LL","UL","observed","type")
+  datac$ID_area <- factor(datac$ID_area,levels = areas)
+  datac$mean <- as.numeric(datac$mean)
+  datac$LL <- as.numeric(datac$LL)
+  datac$UL <- as.numeric(datac$UL)
+  datac$observed <- as.numeric(datac$observed)
+  datac$disease <- paste(cancer.location," cancer")
+  
+  for (i in 1:length(areas)) {
+    d <- dim(datac[which(datac$ID_area==areas[i] & datac$Model=="SCM"),])[1]
+    if(d< (length(known.per)-1)){
+      model.name <- unique(datac$type[which(datac$ID_area==areas[i])])
+      
+      data.aggregate <- cbind(known.per[2:(length(known.per)-d)],rep(areas[i],length(known.per)-d-1),
+                              rep(model.type,length(known.per)-d-1),
+                              rep("NA",length(known.per)-d-1),rep("NA",length(known.per)-d-1),
+                              rep("NA",length(known.per)-d-1),
+                              round(data$counts[areas[i]]/data$population[areas[i]]*10^5,2),
+                              rep(model.name,length(known.per)-d-1))
+
+      data.aggregate <- data.frame(data.aggregate)
+      colnames(data.aggregate)<- c("known.per","ID_area","Model","mean","LL","UL","observed","type")
+      data.aggregate$ID_area <- factor(data.aggregate$ID_area,levels = areas)
+      data.aggregate$mean <- as.numeric(data.aggregate$mean)
+      data.aggregate$LL <- as.numeric(data.aggregate$LL)
+      data.aggregate$UL <- as.numeric(data.aggregate$UL)
+      data.aggregate$observed <- as.numeric(data.aggregate$observed)
+      data.aggregate$disease <- paste(cancer.location," cancer")
+      
+      datac <- rbind(datac,data.aggregate)
+
+    }
+    
+    pd <- position_dodge(0.2)
+    p1 <- ggplot(data = subset(datac, ID_area == areas[i]), aes(x=known.per, 
+                                                                y=mean, 
+                                                                colour=type)) +
+      theme_bw() +
+      geom_errorbar(aes(ymin=LL, ymax=UL), width=1, position=pd, size =1.5)  +
+      geom_point(position=pd, size=5)+
+      scale_x_discrete(limits = c("90-80", "70-60","50", "40", "30", "20"),
+                       labels=c("90-80" = "86.85%", "70-60" = "79.38%",
+                                "50" = "57.67%", "40" = "47.98%", "30" = "28.14%",
+                                "20" = "19.02%")) +
+      geom_hline(yintercept = subset(datac, ID_area == areas[i])$observed[1],
+                 size=1)
+      
+        
+    if (i==1 | i==floor((length(areas)/2)+1)){
+      p1 <- p1 + labs( y = "Incidence rate") +
+            theme(text = element_text(size = 35), legend.position="top",
+                  axis.text.x=element_blank(), axis.ticks.x = element_blank(),
+                  axis.title.x = element_blank())
+      
+      if (cancer.location == "Lung"){
+        p1 <- p1 + facet_wrap(~disease) 
+        
+        if (max(datac$UL[which(datac$ID_area==areas[i])], na.rm=T)<97){
+          p1 <- p1 + 
+            theme(axis.title.y = element_text(margin = margin(t = 0, r = 18, b = 0, 
+                                                              l = 0)))
+        }
+      }
+      else if (cancer.location == "Breast"){
+        p1 <- p1 + facet_grid(vars(ID_area),vars(disease)) +
+          theme(axis.title.y = element_blank())
+      }
+      else {
+        p1 <- p1 + facet_wrap(~disease) +
+          theme(axis.title.y = element_blank())
+      }
+      plot[[i]] <- p1
+    }
+    else if (i==length(areas) | i==floor((length(areas)/2))) {
+      p1 <- p1 + labs(x = "Population covered", y = "Incidence rate") +
+          theme(text = element_text(size = 35), legend.position = "none",
+                axis.text.x = element_text(angle = 70, vjust = 0.3, hjust = 0.2)) 
+      
+      if (cancer.location == "Lung"){
+        if (max(datac$UL[which(datac$ID_area==areas[i])], na.rm=T)<97) {
+          p1 <- p1 + 
+            theme(axis.title.y = element_text(margin = margin(t = 0, r = 18, b = 0, 
+                                                              l = 0)))
+        }
+      }
+      else if (cancer.location == "Breast"){
+        p1 <- p1 +
+          facet_grid(vars(ID_area)) +
+          theme(axis.title.y = element_blank())
+      }
+      else{
+        p1 <- p1 +
+          theme(axis.title.y = element_blank())
+      }
+      plot[[i]] <- p1
+    }
+    else{
+      p1 <- p1 + labs(x = "Population covered", y = "Incidence rate") +
+          theme(text = element_text(size = 35), legend.position = "none",
+                axis.text.x=element_blank(), axis.ticks.x = element_blank(),
+                axis.title.x = element_blank())
+      if (cancer.location == "Lung"){
+        if (max(datac$UL[which(datac$ID_area==areas[i])], na.rm=T)<97) {
+          p1 <- p1 +
+            theme(axis.title.y = element_text(margin = margin(t = 0, r = 18,
+                                                              b = 0, l = 0)))
+        }
+      }
+      else if (cancer.location == "Breast" | cancer.location == "Prostate"){
+        p1 <- p1 +
+            theme(axis.title.y = element_blank())
+      }
+      plot[[i]] <- p1
+    }
+  }
+  
+  pdf(file = paste0("./",cancer.location,"/figures/",removing.strategy[o],"_CI_1.pdf"),
+      width = 8 , height= 25)
+  grid.newpage()
+  pushViewport(viewport(layout = grid.layout(
+    nrow = floor(length(areas)/2)+2,
+    ncol = 3,
+    heights = c(0.035,rep(0.94/floor(length(areas)/2),floor(length(areas)/2)),0.025),
+    widths = c(0.02,0.92,0.06)
+  )))
+  print(plot[[1]], vp = viewport(layout.pos.row = 1:2, layout.pos.col = 1:2))
+  for (i in 2:(floor(length(areas)/2)-1)) {
+    print(plot[[i]], vp = viewport(layout.pos.row = i+1, layout.pos.col = 1:2))
+  }
+  print(plot[[floor(length(areas)/2)]], vp = viewport(
+    layout.pos.row = (floor(length(areas)/2)+1):(floor(length(areas)/2)+2), 
+    layout.pos.col = 1:2))
+  dev.off()
+  
+  pdf(file = paste0("./",cancer.location,"/figures/",removing.strategy[o],"_CI_2.pdf"),
+      width = 8 , height= 35)
+  grid.newpage()
+  pushViewport(viewport(
+    layout = grid.layout(
+    nrow = floor(length(areas)/2)+2,
+    ncol = 3,
+    heights = c(0.035,rep(0.94/floor(length(areas)/2),floor(length(areas)/2)),0.025),
+    widths = c(0.02,0.92,0.06)
+  )))
+  
+  print(plot[[floor(length(areas)/2)+1]], vp = viewport(layout.pos.row = 1:2,
+                                                 layout.pos.col = 1:2))
+  for (i in (floor(length(areas)/2)+2):(length(areas)-1)) {
+    print(plot[[i]], vp = viewport(layout.pos.row = i-floor(length(areas)/2)+1, 
+                                   layout.pos.col = 1:2))
+  }
+  print(plot[[length(areas)]], vp = viewport(
+    layout.pos.row = (floor(length(areas)/2)+1):(floor(length(areas)/2)+2), 
+    layout.pos.col = 1:2))
+  
+  dev.off()
+  
+
+}
+```
+
+### Table National Incidence
+
+In this section you will find the code to obtain the Table 2 of Supporting Information 2.
+
+```{r}
+for (o in 1:length(removing.strategy)) {
+  national.table <- matrix(NA, nrow = length(model.type)*2, ncol =length(known.per))
+  
+  national.table[c(1,3),1] <- sum(data$counts[which(data$health_outcome=="inc")])
+  for (j in 2:length(known.per)) {
+    if(selec.SCM[o]=="unst"){
+      ##Estimated results
+      ## Model 1: Specific intercept + Unstructure 1 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model1_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 1"
+      eval(parse(text = paste0("res <- result_shared_",selec.SCM[o])))
+    }
+    else if(selec.SCM[o]=="unst2"){
+      ## Model 2: Specific intercept + Unstructure 2 disease
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model2_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 2"
+      eval(parse(text = paste0("res <- result_shared_",selec.SCM[o])))
+    }
+    else{
+      ## Model 3: Specific intercept + Unstructure 2 disease indep
+      eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/SCM/Model3_",cancer.location,"_cancer_",removing.strategy[o],".RData')")))
+      model.SCM <- "Model 3"
+      eval(parse(text = paste0("res <- result_shared_",selec.SCM[o])))
+    }
+    
+    
+    n.samples <- 5000
+    samples.rate <- inla.posterior.sample(n.samples, res, seed=11052022)
+    
+    fun = function(...) {
+      exp(Predictor)
+    }
+    samples.rate.exp = inla.posterior.sample.eval(fun, samples.rate, seed=11052022)
+    
+    set.seed(18052022)
+    
+    n=16
+    count <- NULL
+    for (i in 1:n) {
+      eval(parse(text = paste0("count[[",i,"]] <- rpois(n.samples,data$population[i]*samples.rate.exp[i,])")))
+    }
+    
+    
+    ##National incidence distribution:
+    national.count <- Reduce(`+`,count)
+    L <- quantile(national.count, probs = c(0.025,0.975))
+    
+    national.table[1,j] <- round(mean(national.count),0)
+    national.table[2,j] <- paste("(",round(mean(L[1]),0)," - ",round(mean(L[2]),0),")")
+    
+    rm(list = c("samples.rate","samples.rate.exp","national.count"))
+    
+    ## Model 2: Specific intercept
+    eval(parse(text= paste0("load('./",cancer.location,"/Coverage_",known.per[j],"/M_Model/MModel_results_",cancer.location,"_",selec.priors[o],"_",selec.method[o],"_",removing.strategy[o],".RData')")))
+    eval(parse(text = paste0("res <- result_",selec.priors[o],"_",selec.method[o],"_specI")))
+    
+    
+    
+    n.samples <- 5000
+    samples.rate <- inla.posterior.sample(n.samples, res, seed = 11052022)
+    
+    fun = function(...) {
+      exp(Predictor)
+    }
+    samples.rate.exp = inla.posterior.sample.eval(fun, samples.rate, seed = 11052022)
+    
+    set.seed(18052022)
+    n=16
+    count <- NULL
+    for (i in 1:n) {
+      eval(parse(text = paste0("count[[",i,"]] <- rpois(n.samples,data$population[i]*samples.rate.exp[i,])")))
+    }
+
+    ##National incidence distribution:
+    national.count <- Reduce(`+`,count)
+    L <- quantile(national.count, probs = c(0.025,0.975))
+
+    national.table[3,j] <- round(mean(national.count),0)
+    national.table[4,j] <- paste("(",round(mean(L[1]),0)," - ",round(mean(L[2]),0),")")
+    
+  }
+  
+  national.table <- cbind(c(paste(model.SCM),"","Model 3",""),
+                  c("SCM","",paste(selec.priors[o]," ",selec.method[o]),""),
+                  national.table)
+  national.table <- rbind(c(removing.strategy[o]," ","Observed",known.per[-1]),
+                               national.table)
+  
+  latex_table<-xtable::xtable(national.table, caption=paste0("National Incidence. Strategy",removing.strategy[o]), label="tab3", digits=3)
+  xtable::print.xtable(latex_table, include.rownames = FALSE, comment=FALSE, caption.placement = getOption("xtable.caption.placement", "top"))
+  
+}
+```

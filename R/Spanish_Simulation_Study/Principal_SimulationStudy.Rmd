@@ -1,0 +1,594 @@
+# Simulation Study. Definition of the scenarios
+
+Note: Due to confidentiality, the data from which the global rates and standard deviations used for the simulation study have been obtained are not shown in the repository. Therefore, only the values obtained are shown.
+
+Due to the rounding of the value of the global rates and standard deviations used, the results obtained in this code are not the same as those obtained in the scenarios in the paper. Therefore, the results obtained in each scenario have been added to the repository and this code has been added to the repository in order to replicate the simulation study.
+
+## Necessary packages
+
+```{r}
+rm(list=ls())
+library(spdep)
+library(Matrix)
+library(MASS)
+library(sf)
+library(tmap)
+library(RColorBrewer)
+```
+
+## Load the cartography file and define the spatial structure matrix
+
+```{r}
+load("./data/CartoSpainProv.RData")
+Carto <- Carto_prov
+
+carto.nb <- poly2nb(Carto)
+W <- nb2mat(carto.nb, style="B")
+S <- nrow(W)
+
+R <- diag(colSums(W))-W
+
+```
+
+## Load the data file
+
+The data file `DataSpain.RData` contains the following variables:
+
+-   `district`: The number of the region.
+
+-   `population`: Population.
+
+```{r}
+load("./data/DataSpain.RData")
+Data <- Data_Spain
+
+```
+
+## Definition of terms used in the simulation study
+
+### Global rates
+
+In the simulation study we define the global incidence rate as 50 per 100,000 inhabitants. But to simulate the data we need to transform it to a logarithmic scale. Therefore, $$\beta_I=\log \left(\frac{50}{100,000}\right).$$
+
+```{r}
+betaI <- log(5e-4)
+
+```
+
+To define different lethality levels, we define the global mortality rate as $$\exp(\beta_M)=\rho \exp(\beta_I),$$ where $\rho= 0.3, 0.5, 0.7, 0.9$. We define these values of $\rho$ for Scenario 1 , Scenario 2 and Scenario 3.
+
+```{r}
+ro<-c(0.3, 0.5, 0.7, 0.9)
+```
+
+As the results of Scenario 1, Scenario 2 and Scenario 3 show that lethality level does not affect the results obtained by the proposed models, in Scenario 4 and Scenario 5 we define $\rho=0.4$. Therefore, $$\beta_M=\log(0.4) + \beta_I.$$
+
+```{r}
+betaM <- log(0.4)+betaI
+```
+
+### Structured spatial effects
+
+Moreover, we need to define the structured spatial effect $\psi_i$. This spatial effect follows the following distribution
+
+$$
+\boldsymbol{\psi}\sim N\left(\boldsymbol{0},\sigma^2_\psi\boldsymbol{R}^-\right).
+$$ Therefore, we need to define $\sigma^2_{\psi}$. The value selected is $0.1556836$ for the standard deviation $\sigma_{\psi}.$ The spatial neighborhood structure $\boldsymbol{R}$ has been defined previously where the $i$th diagonal element is equal to the number of neighbors of the $i$th geographical area and for $i\not=j$ $R_{ij}=1$ if i and j are neighbors and 0 otherwise.
+
+```{r}
+sd_I <- 0.1556836
+
+set.seed(20210318)
+psi <- mvrnorm(1,rep(0,S),sd_I*ginv(R))
+
+```
+
+For Scenario 4 and Scenario 5 we need to define the structured spatial effect $\zeta_i$. This spatial effect follows the following distribution
+
+$$
+\boldsymbol{\zeta}\sim N\left(\boldsymbol{0},\sigma^2_\zeta\boldsymbol{R}^-\right).
+$$ Therefore, we need to define $\sigma^2_{\zeta}$. The value selected is $0.2592425$ for the standard deviation $\sigma_{\zeta}.$ The spatial neighborhood structure $\boldsymbol{R}$ is the same as before.
+
+```{r}
+sd_M <- 0.2592425
+
+set.seed(20210405)
+zeta <- mvrnorm(1,rep(0,S),sd_M*ginv(R))
+```
+
+### Unstructured spatial effects
+
+The unstructured spatial effects defined in the simulation study are
+
+$$
+\boldsymbol{\xi}\sim N\left(\boldsymbol{0},\sigma^2_\xi \boldsymbol{I}_{S}\right),$$ $$\boldsymbol{\epsilon}\sim N\left(\boldsymbol{0},\sigma^2_\epsilon \boldsymbol{I}_{S}\right).
+$$
+
+Spatially unstructured effects will be defined in the necessary scenarios, as different standard deviation values have been used. In all cases the unstructured effects obtained are the same as the same `set.seed()` is used in all scenarios. The standard deviation values defined are $$\sigma_\xi=0.05, 0.1, 0.2$$ $$\sigma_\epsilon = 0.05, 0.1, 0.2$$
+
+```{r}
+var.error <- c(0.05, 0.1, 0.2)
+```
+
+## Scenario 0
+
+We define Scenario 0 as$$
+\textrm{Scenario 0:}\log (r_{Ii})=\beta_I+\psi_i,$$ $$ \quad \quad \quad \quad \quad
+\log (r_{Mi})= \beta_M+\psi_i. \\
+$$
+
+### Folder to save results
+
+```{r}
+if(!file.exists("./S0"))
+{dir.create("./S0")}
+```
+
+### Results for Scenario 0
+
+First, the real incidence and mortality rates for each area are simulated on a logarithmic scale. We then plot the real incidence and mortality rates per 100,000 inhabitants in each area of the cartography used. Finally, we generate the counts using the Poisson distribution. We generate 140 simulations as we will then select 100 simulations that have obtained convergence in all percentages of missing values analysed.
+
+The simulated counts will be stored in a data frame called `DataSIM` which will be composed by
+
+-   `sim` : The number of the simulation. Takes the values 1 to 140.
+
+-   `district`: The number of the region.
+
+-   `observed`: Simulated incidence and mortality counts.
+
+-   `population`: Population.
+
+-   `disease`: Takes value "inc" for cancer incidence and value "mort" for cancer mortality.
+
+-   `crude.rate`: Simulated incidence and mortality crude rates per 100,000 inhabitants. The formula to obtain the crude rates per 100,000 inhabitants is the following
+
+    $$
+    r_{id}=\frac{O_{id}}{n_{id}}*100,000
+    $$
+
+We save the `DataSIM` data frame and the simulated real rates in the logarithmic scale (`logRate`).
+
+```{r}
+for (j in 1:length(ro)) {
+  beta<- ro[j]
+
+  logRate <- c(rep(betaI,S),rep(betaI,S)) + c(psi, psi) + c(rep(0,S),rep(log(beta),S))
+
+
+  ###########################
+  ## Plot the rate surface ##
+  ###########################
+
+  Carto <- st_as_sf(Carto)
+  Carto$crude.rate1 <- exp(logRate[seq(1,S)])*100000
+  Carto$crude.rate2 <- exp(logRate[seq(S+1,2*S)])*100000
+
+  paleta <- brewer.pal(8,"RdYlGn")[8:1]
+  values1 <- quantile(Carto$crude.rate1,seq(0,1,length.out=9))
+  values2 <- quantile(Carto$crude.rate2,seq(0,1,length.out=9))
+
+  Map1 <- tm_shape(Carto) +
+    tm_polygons(col="crude.rate1", palette=paleta, title="Rates", legend.show=T,
+                legend.reverse=T, style="fixed", breaks=values1, interval.closure="left") +
+    tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.2,
+              panel.labels=c("Incidence"),
+              outer.margins=c(0.02,0.01,0.02,0.01))
+
+  Map2 <- tm_shape(Carto) +
+    tm_polygons(col="crude.rate2", palette=paleta, title="Rates", legend.show=T,
+                legend.reverse=T, style="fixed", breaks=values2, interval.closure="left") +
+    tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.2,
+              panel.labels=c("Mortality"),
+              outer.margins=c(0.02,0.01,0.02,0.01))
+
+  Map <- tmap_arrange(Map1,Map2)
+  print(Map)
+
+  tmap_save(Map, file=paste0("./S0/SimulationStudy_S0_ro_",ro[j],".pdf"))
+
+
+  
+  #####################
+  ## Generate counts ##
+  #####################
+  set.seed(20210317)
+  n.sim <- 140
+  simuy <- array(dim=c(2*S,1))
+  DataSIM <- data.frame()
+  
+  act.sim<-1
+
+  repeat{
+    simuy[,1] <- rpois(2*S,exp(logRate)*rep(Data$population,2))
+    Data_sim<- data.frame(district=rep(Data$district,2),
+                      observed=as.vector(simuy),
+                      population=rep(Data$population,2),
+                      disease=rep(c("inc","mort"),each=S))
+    Data_sim$crude.rate <- Data_sim$observed/Data_sim$population*100000
+
+    DataSIM <- rbind(DataSIM,data.frame(sim=rep(act.sim),Data_sim))
+    rm(list=c("Data_sim"))
+                
+    act.sim <- act.sim +1
+    if(act.sim==n.sim+1){break}
+  }
+  save(list=c("DataSIM","logRate"), file=paste0("./S0/SimulationStudy_S0_ro_",ro[j],".Rdata"))
+
+  rm(list="DataSIM")
+}
+
+```
+
+## Scenario 1
+
+We define Scenario 1 as
+
+$$
+\textrm{Scenario 1:}\log (r_{Ii})=\beta_I+\psi_i,$$ $$ \quad \quad \quad \quad \quad \quad \quad
+\log (r_{Mi})= \beta_M+\psi_i +\xi_i.
+$$
+
+### Folder to save results
+
+```{r}
+if(!file.exists("./S1"))
+{dir.create("./S1")}
+```
+
+### Results for Scenario 1
+
+We follow the same procedure used in Scenario 0. In this case, we defined the $$\boldsymbol{\xi}\sim N\left(\boldsymbol{0},\sigma^2_\xi \boldsymbol{I}_{S}\right)$$ unstructured spatial effect which we call `e2`. Mentioned above, different standard deviation values have been defined. Therefore, for each standard deviation we save the corresponding `DataSIM` data frame and the simulated real rates in the logarithmic scale (`logRate`).
+
+```{r}
+for (j in 1:length(ro)) {
+  for (i in 1:length(var.error)) {
+    set.seed(20210331)
+    e2 <- rnorm(S,0,var.error[i])
+    
+    beta<- ro[j]
+  
+    logRate <- c(rep(betaI,S),rep(betaI,S)) + c(psi, psi+e2) + c(rep(0,S),rep(log(beta),S))
+
+    ###########################
+    ## Plot the rate surface ##
+    ###########################
+  
+    Carto <- st_as_sf(Carto)
+    Carto$crude.rate1 <- exp(logRate[seq(1,S)])*100000
+    Carto$crude.rate2 <- exp(logRate[seq(S+1,2*S)])*100000
+  
+    paleta <- brewer.pal(8,"RdYlGn")[8:1]
+    values1 <- quantile(Carto$crude.rate1,seq(0,1,length.out=9))
+    values2 <- quantile(Carto$crude.rate2,seq(0,1,length.out=9))
+  
+    Map1 <- tm_shape(Carto) +
+      tm_polygons(col="crude.rate1", palette=paleta, title="Rates", legend.show=T,
+                  legend.reverse=T, style="fixed", breaks=values1, interval.closure="left") +
+      tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.2,
+                panel.labels=c("Incidence"),
+                outer.margins=c(0.02,0.01,0.02,0.01))
+  
+    Map2 <- tm_shape(Carto) +
+      tm_polygons(col="crude.rate2", palette=paleta, title="Rates", legend.show=T,
+                  legend.reverse=T, style="fixed", breaks=values2, interval.closure="left") +
+      tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.2,
+                panel.labels=c("Mortality"),
+                outer.margins=c(0.02,0.01,0.02,0.01))
+  
+    Map <- tmap_arrange(Map1,Map2)
+    print(Map)
+  
+    tmap_save(Map, file=paste0("./S1/SimulationStudy_S1_ro_",ro[j],"_sd_error_",var.error[i],".pdf"))
+
+
+
+    #####################
+    ## Generate counts ##
+    #####################
+    set.seed(20210317)
+    n.sim <- 140
+    simuy <- array(dim=c(2*S,1))
+    DataSIM <- data.frame()
+  
+    act.sim<-1
+  
+    repeat{
+      simuy[,1] <- rpois(2*S,exp(logRate)*rep(Data$population,2))
+      Data_sim<- data.frame(district=rep(Data$district,2),
+                      observed=as.vector(simuy),
+                      population=rep(Data$population,2),
+                      disease=rep(c("inc","mort"),each=S))
+      Data_sim$crude.rate <- Data_sim$observed/Data_sim$population*100000
+
+      ##Save results
+      DataSIM <- rbind(DataSIM,data.frame(sim=rep(act.sim),Data_sim))
+      rm(list=c("Data_sim"))
+       
+      act.sim <- act.sim +1
+     
+      if(act.sim==n.sim+1){break}
+    }
+    #######################
+    ## Save the results ##
+    ######################
+                      
+    save(list=c("DataSIM","logRate"), file=paste0("./S1/SimulationStudy_S1_ro_",ro[j],"_sd_error_",var.error[i],".Rdata"))
+    
+    rm(list="DataSIM")
+  }
+}
+```
+
+## Scenario 2
+
+We define Scenario 2 as$$\textrm{Scenario 2:}\log (r_{Ii})=\beta_I+\psi_i+\epsilon_i,$$ $$ \quad \quad \quad \quad \quad 
+\log (r_{Mi})= \beta_M+\psi_i +\xi_i.
+$$
+
+### Folder to save results
+
+```{r}
+if(!file.exists("./S2"))
+{dir.create("./S2")}
+```
+
+### Results for Scenario 2
+
+We follow the same procedure used in Scenario 0. In this case, we defined the $$\boldsymbol{\xi}\sim N\left(\boldsymbol{0},\sigma^2_\xi \boldsymbol{I}_{S}\right)$$ $$\boldsymbol{\epsilon}\sim N\left(\boldsymbol{0},\sigma^2_\epsilon \boldsymbol{I}_{S}\right)$$ unstructured spatial effects which we call `e2` and `e1` respectively. Mentioned above, different standard deviation values have been defined. Therefore, for each standard deviation we save the corresponding `DataSIM` data frame and the simulated real rates in the logarithmic scale (`logRate`).
+
+```{r}
+for (j in 1:length(ro)) {
+  for (i in 1:length(var.error)) {
+    set.seed(20210331)
+    e2 <- rnorm(S,0,var.error[i])
+    e1 <- rnorm(S,0,var.error[i])
+    
+    beta<- ro[j]
+  
+    logRate <- c(rep(betaI,S),rep(betaI,S)) + c(psi+e1, psi+e2) + c(rep(0,S),rep(log(beta),S))
+
+    ###########################
+    ## Plot the rate surface ##
+    ###########################
+  
+    Carto <- st_as_sf(Carto)
+    Carto$crude.rate1 <- exp(logRate[seq(1,S)])*100000
+    Carto$crude.rate2 <- exp(logRate[seq(S+1,2*S)])*100000
+  
+    paleta <- brewer.pal(8,"RdYlGn")[8:1]
+    values1 <- quantile(Carto$crude.rate1,seq(0,1,length.out=9))
+    values2 <- quantile(Carto$crude.rate2,seq(0,1,length.out=9))
+  
+    Map1 <- tm_shape(Carto) +
+      tm_polygons(col="crude.rate1", palette=paleta, title="Rates", legend.show=T,
+                  legend.reverse=T, style="fixed", breaks=values1, interval.closure="left") +
+      tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.5,
+                panel.labels=c("Incidence"),
+                outer.margins=c(0.02,0.01,0.02,0.01))
+  
+    Map2 <- tm_shape(Carto) +
+      tm_polygons(col="crude.rate2", palette=paleta, title="Rates", legend.show=T,
+                  legend.reverse=T, style="fixed", breaks=values2, interval.closure="left") +
+      tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.5,
+                panel.labels=c("Mortality"),
+                outer.margins=c(0.02,0.01,0.02,0.01))
+  
+    Map <- tmap_arrange(Map1,Map2)
+    print(Map)
+  
+    tmap_save(Map, file=paste0("./S2/SimulationStudy_S2_ro_",ro[j],"_sd_error_",var.error[i],".pdf"))
+
+
+    #####################
+    ## Generate counts ##
+    #####################
+    set.seed(20210317)
+    n.sim <- 140
+    simuy <- array(dim=c(2*S,1))
+    DataSIM <- data.frame()
+  
+    act.sim<-1
+    c.save<-0
+
+    repeat{
+      simuy[,1] <- rpois(2*S,exp(logRate)*rep(Data$population,2))
+      Data_sim<- data.frame(district=rep(Data$district,2),
+                      observed=as.vector(simuy),
+                      population=rep(Data$population,2),
+                      disease=rep(c("inc","mort"),each=S))
+      Data_sim$crude.rate <- Data_sim$observed/Data_sim$population*100000
+
+      ##Save results
+      DataSIM <- rbind(DataSIM,data.frame(sim=rep(act.sim),Data_sim))
+      rm(list=c("Data_sim"))
+    
+      act.sim <- act.sim +1
+             
+      if(act.sim==n.sim+1){break}
+    }
+    #######################
+    ## Save the results ##
+    ######################
+    save(list=c("DataSIM","logRate"), file=paste0("./S2/SimulationStudy_S2_ro_",ro[j],"_sd_error_",var.error[i],".Rdata"))
+    rm(list="DataSIM")
+  }
+}
+```
+
+## Scenario 3
+
+We define Scenario 3 as$$
+\textrm{Scenario 3:}\log (r_{Ii})=\beta_I+\psi_i, $$ $$ \quad \quad \quad \quad \quad
+\log (r_{Mi})=\beta_M+\zeta_i.
+$$
+
+### Folder to save results
+
+```{r}
+if(!file.exists("./S3"))
+{dir.create("./S3")}
+```
+
+### Results for Scenario 3
+
+We follow the same procedure used in Scenario 0. In this case, we defined$$\exp(\beta_M) = 0.4*\exp(\beta_I),$$ which has been defined above as `betaM`.
+
+```{r}
+logRate <- c(rep(betaI,S),rep(betaM,S)) + c(psi, zeta)
+
+###########################
+## Plot the rate surface ##
+###########################
+
+Carto <- st_as_sf(Carto)
+Carto$crude.rate1 <- exp(logRate[seq(1,S)])*100000
+Carto$crude.rate2 <- exp(logRate[seq(S+1,2*S)])*100000
+
+paleta <- brewer.pal(8,"RdYlGn")[8:1]
+values1 <- quantile(Carto$crude.rate1,seq(0,1,length.out=9))
+values2 <- quantile(Carto$crude.rate2,seq(0,1,length.out=9))
+
+Map1 <- tm_shape(Carto) +
+  tm_polygons(col="crude.rate1", palette=paleta, title="Rates", legend.show=T,
+              legend.reverse=T, style="fixed", breaks=values1, interval.closure="left") +
+  tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.4,
+            panel.labels=c("Incidence"),
+            outer.margins=c(0.02,0.01,0.02,0.01))
+
+Map2 <- tm_shape(Carto) +
+  tm_polygons(col="crude.rate2", palette=paleta, title="Rates", legend.show=T,
+              legend.reverse=T, style="fixed", breaks=values2, interval.closure="left") +
+  tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.4,
+            panel.labels=c("Mortality"),
+            outer.margins=c(0.02,0.01,0.02,0.01))
+
+Map <- tmap_arrange(Map1,Map2)
+print(Map)
+
+tmap_save(Map, file=paste0("./S3/SimulationStudy_S3.pdf"))
+
+
+
+#####################
+## Generate counts ##
+#####################
+set.seed(20210317)
+n.sim <- 140
+simuy <- array(dim=c(2*S,1))
+DataSIM <- data.frame()
+
+act.sim<-1
+
+repeat{
+  simuy[,1] <- rpois(2*S,exp(logRate)*rep(Data$population,2))
+  Data_sim<- data.frame(district=rep(Data$district,2),
+                      observed=as.vector(simuy),
+                      population=rep(Data$population,2),
+                      disease=rep(c("inc","mort"),each=S))
+  Data_sim$crude.rate <- Data_sim$observed/Data_sim$population*100000
+
+  ##Save results
+  DataSIM <- rbind(DataSIM,data.frame(sim=rep(act.sim),Data_sim))
+  rm(list=c("Data_sim"))
+        
+  act.sim <- act.sim +1
+  if(act.sim==n.sim+1){break}
+}
+
+#######################
+## Save the results ##
+######################
+                  
+save(list=c("DataSIM","logRate"), file=paste0("./S3/SimulationStudy_S3.Rdata"))
+                  
+rm(list="DataSIM")
+```
+
+## Scenario 4
+
+We define Scenario 4 as $$\textrm{Scenario 4:}\log (r_{Ii})=\beta_I+\psi_i+ \epsilon_i, $$ $$ \quad \quad \quad \quad \quad \log (r_{Mi})= \beta_M+\zeta_i+\xi_i$$
+
+### Folder to save results
+
+```{r}
+if(!file.exists("./S4"))
+{dir.create("./S4")}
+```
+
+### Results for Scenario 4
+
+We follow the same procedure used in Scenario 0. In this case, we defined the $$\boldsymbol{\xi}\sim N\left(\boldsymbol{0},\sigma^2_\xi \boldsymbol{I}_{S}\right)$$ $$\boldsymbol{\epsilon}\sim N\left(\boldsymbol{0},\sigma^2_\epsilon \boldsymbol{I}_{S}\right)$$ unstructured spatial effects which we call `e2` and `e1` respectively. Mentioned above, different standard deviation values have been defined. Therefore, for each standard deviation we save the corresponding `DataSIM` data frame and the simulated real rates in the logarithmic scale (`logRate`).
+
+```{r}
+for (i in 1:length(var.error)) {
+  set.seed(20210331)
+  e2 <- rnorm(S,0,var.error[i])
+  e1 <- rnorm(S,0,var.error[i])
+  
+  logRate <- c(rep(betaI,S),rep(betaM,S)) + c(psi+e1, zeta+e2)
+  
+  ###########################
+  ## Plot the rate surface ##
+  ###########################
+  
+  Carto <- st_as_sf(Carto)
+  Carto$crude.rate1 <- exp(logRate[seq(1,S)])*100000
+  Carto$crude.rate2 <- exp(logRate[seq(S+1,2*S)])*100000
+  
+  paleta <- brewer.pal(8,"RdYlGn")[8:1]
+  values1 <- quantile(Carto$crude.rate1,seq(0,1,length.out=9))
+  values2 <- quantile(Carto$crude.rate2,seq(0,1,length.out=9))
+  
+  Map1 <- tm_shape(Carto) +
+    tm_polygons(col="crude.rate1", palette=paleta, title="Rates", legend.show=T,
+                legend.reverse=T, style="fixed", breaks=values1, interval.closure="left") +
+    tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.5,
+              panel.labels=c("Incidence"),
+              outer.margins=c(0.02,0.01,0.02,0.01))
+  
+  Map2 <- tm_shape(Carto) +
+    tm_polygons(col="crude.rate2", palette=paleta, title="Rates", legend.show=T,
+                legend.reverse=T, style="fixed", breaks=values2, interval.closure="left") +
+    tm_layout(legend.outside=T, legend.outside.position="right", legend.frame=F, legend.outside.size=0.5,
+              panel.labels=c("Mortality"),
+              outer.margins=c(0.02,0.01,0.02,0.01))
+  
+  Map <- tmap_arrange(Map1,Map2)
+  print(Map)
+  
+  tmap_save(Map, file=paste0("./S4/SimulationStudy_S4_sd_error_",var.error[i],".pdf"))
+  
+  
+  #####################
+  ## Generate counts ##
+  #####################
+  set.seed(20210317)
+  n.sim <- 140
+  simuy <- array(dim=c(2*S,1))
+  DataSIM <- data.frame()
+  
+  act.sim<-1
+  
+  repeat{
+    simuy[,1] <- rpois(2*S,exp(logRate)*rep(Data$population,2))
+    Data_sim<- data.frame(district=rep(Data$district,2),
+                      observed=as.vector(simuy),
+                      population=rep(Data$population,2),
+                      disease=rep(c("inc","mort"),each=S))
+    Data_sim$crude.rate <- Data_sim$observed/Data_sim$population*100000
+    
+    ##Save results
+    DataSIM <- rbind(DataSIM,data.frame(sim=rep(act.sim),Data_sim))
+    rm(list=c("Data_sim"))
+     
+    act.sim <- act.sim +1
+    if(act.sim==n.sim+1){break}
+  }
+  
+  #######################
+  ## Save the results ##
+  ######################
+  save(list=c("DataSIM","logRate"), file=paste0("./S4/SimulationStudy_S4_sd_error_",var.error[i],".Rdata"))
+  rm(list="DataSIM")
+}
+```

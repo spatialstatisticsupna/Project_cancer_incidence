@@ -1,0 +1,654 @@
+# Select Simulations
+
+As mentioned in previous codes, for each scenario 140 simulations have been performed, from which 100 simulations that have obtained convergence in the different coverage percentages defined will be selected. The code to select 100 simulations can be found in this R code.
+
+First, we need to define the following variables:
+
+-   `ro`: the $\rho$ values defined to obtain different cancer lethality levels in Scenario 0, Scenario 1 and Scenario 2 of the simulation study.
+
+-   `var_error`: the standard deviation values defined for the unstructured spatial effects defined in Scenario 1, Scenario 2 and Scenario 4 of the simulation study.
+
+-   `n`: number of areas.
+
+-   `n.sim`: number of simulations.
+
+-   `n.save`: the number used to save the results of the models. It must always start with 0. In this case, as we have saved the results of the simulation study 20 by 20, the numbers are 20, 40, 60, 80, 100, 120 and 140.
+
+-   `model.type`: model name used for each shared component model defined, i.e M1, M2 and M3.
+
+-   `name.model`: type of the shared component model defined. For M1 we use *unst*, for M2 *unst2* and for M 3 *unst2_indep*.
+
+-   `priors`: the spatial priors defined for the M-models.
+
+-   `method`: the modeling method used for the M-models.
+
+-   `scenarios`: name of the scenarios defined in the simulation study.
+
+-   `known.per`: percentages of coverage defined.
+
+```{r}
+## Necessary constant
+ro<-c(0.3,0.5,0.7,0.9)
+var_error <- c(0.05,0.1,0.2)
+
+n <- 47
+n.sim<-140
+n.save<-seq(0,n.sim,by=20)
+
+model.type <- c("M1","M2","M3")
+name.model <- c("unst","unst2","unst2_indep")
+
+priors <- c("iCAR","pCAR","LCAR","BYM","BYM2")
+method <- c("FE","RE")
+
+scenarios <- c("S0","S1","S2","S3","S4")
+known.per <- c("100","90","80","70","60","50","40","30")
+
+```
+
+Once the required variables have been defined, we can select the 100 simulations. These simulations are different according to the scenario analysed. We save the selected simulations in the folder `Selected_Simulations`. Therefore, we need to create the folder `Selected_Simulations`. In this folder we will save only the 100 selected simulations for each scenario and a vector with the number of selected simulations.
+
+```{r}
+## Folder to save results
+if(!file.exists('./Selected_Simulations'))
+{dir.create('./Selected_Simulations')}
+
+## Folder to save results
+for (s in 1:length(scenarios)) {
+  eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"')}")))
+}
+
+```
+
+We select 100 simulations for each scenario.
+
+```{r}
+for (s in 1:length(scenarios)) {
+  ###Scenario 0
+  if (scenarios[s]=="S0"){
+    selec_sim <- c(1:n.sim)
+    for (kp in 1:length(known.per)){
+      for (i in 1:length(ro)) {
+        for (j in 2:length(n.save)) {
+          ##Shared Component Model
+          for (mt in 1:length(model.type)) {
+          eval(parse(text = paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/ro_",ro[i],"/",scenarios[s],"_",model.type[mt],"_ro_",ro[i],"_",n.save[j],".RData')")))
+            eval(parse(text = paste0("res <- results_shared_",name.model[mt]))) 
+        
+            for (l in 1:length(res)) {
+              if (is.null(res[[l]])){
+                if (length(which(selec_sim==(l+n.save[j-1])))!=0){
+                  selec_sim <- selec_sim[-which(selec_sim==(l+n.save[j-1]))]
+                }
+              }
+            }
+          }
+          rm(list=c("res"))
+          
+          ## M-model
+          for (p in 1:length(priors)) {
+            for (d in 1:length(method)) {
+              eval(parse(text= paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"/",scenarios[s],"_",priors[p],"_",method[d],"_ro_",ro[i],"_",n.save[j],".RData')")))
+              eval(parse(text = paste0("res <- results_",priors[p],"_",method[d],"_specI")))
+
+              for (l in 1:length(res)) {
+                if (is.null(res[[l]])){
+                  if (length(which(selec_sim==(l+n.save[j-1])))!=0){
+                   selec_sim <- selec_sim[-which(selec_sim==(l+n.save[j-1]))]
+                  }
+                }
+              }
+               rm(list=c("res"))
+            }
+          }
+        }
+      }
+    }
+    
+    #choose 100 simulations
+    set.seed(230821)
+    selec_sim <- sort(sample(selec_sim,100,replace = F))
+    
+    #Save selected 100 simulations
+    for (i in 1:length(ro)) {
+      eval(parse(text= paste0("load('./",scenarios[s],"/SimulationStudy_",scenarios[s],"_ro_",ro[i],".Rdata')")))
+    
+    Data <- NULL
+    for (ss in selec_sim) {
+      Data <- rbind(Data,DataSIM[which(DataSIM$sim==ss),])
+    }
+    Data$disease <- factor(Data$disease, labels = c("inc","mort"))
+    Data$sim <- rep(1:100,each=n*2)
+        
+    DataSIM <- Data
+
+    eval(parse(text = paste0("save(list=c('DataSIM','logRate'), file='./Selected_Simulations/",scenarios[s],"/SimulationStudy_",scenarios[s],"_ro_",ro[i],".Rdata')")))
+    }
+    
+    #Save selec_sim vector
+    eval(parse(text = paste0("save(selec_sim, file='./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+  }
+  
+  ###Scenario 1 and Scenario 2
+  if (scenarios[s]=="S1" | scenarios[s]=="S2"){
+    selec_sim <- c(1:n.sim)
+    for (kp in 1:length(known.per)){
+      for (i in 1:length(ro)) {
+        for (v in 1:length(var_error)) {
+          for (j in 2:length(n.save)) {
+            ##Shared Component Model
+            for (mt in 1:length(model.type)) {
+            eval(parse(text = paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/ro_",ro[i],"_sd_",var_error[v],"/",scenarios[s],"_",model.type[mt],"_ro_",ro[i],"_sd_",var_error[v],"_",n.save[j],".RData')")))
+              eval(parse(text = paste0("res <- results_shared_",name.model[mt]))) 
+          
+              for (l in 1:length(res)) {
+                if (is.null(res[[l]])){
+                  if (length(which(selec_sim==(l+n.save[j-1])))!=0){
+                    selec_sim <- selec_sim[-which(selec_sim==(l+n.save[j-1]))]
+                  }
+                }
+              }
+            }
+            rm(list=c("res"))
+            
+            ## M-model
+            for (p in 1:length(priors)) {
+              for (d in 1:length(method)) {
+                eval(parse(text= paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"/",scenarios[s],"_",priors[p],"_",method[d],"_ro_",ro[i],"_sd_",var_error[v],"_",n.save[j],".RData')")))
+                eval(parse(text = paste0("res <- results_",priors[p],"_",method[d],"_specI")))
+
+                for (l in 1:length(res)) {
+                  if (is.null(res[[l]])){
+                    if (length(which(selec_sim==(l+n.save[j-1])))!=0){
+                     selec_sim <- selec_sim[-which(selec_sim==(l+n.save[j-1]))]
+                    }
+                  }
+                }
+                 rm(list=c("res"))
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    #choose 100 simulations
+    set.seed(230821)
+    selec_sim <- sort(sample(selec_sim,100,replace = F))
+    
+    #Save selected 100 simulations
+    for (i in 1:length(ro)) {
+      for (v in 1:length(var_error)) {
+        eval(parse(text= paste0("load('./",scenarios[s],"/SimulationStudy_",scenarios[s],"_ro_",ro[i],"_sd_error_",var_error[v],".Rdata')")))
+    
+        Data <- NULL
+        for (ss in selec_sim) {
+          Data <- rbind(Data,DataSIM[which(DataSIM$sim==ss),])
+        }
+        Data$disease <- factor(Data$disease, labels = c("inc","mort"))
+        Data$sim <- rep(1:100,each=n*2)
+        
+        DataSIM <- Data
+
+        eval(parse(text = paste0("save(list=c('DataSIM','logRate'), file='./Selected_Simulations/",scenarios[s],"/SimulationStudy_",scenarios[s],"_ro_",ro[i],"_sd_error_",var_error[v],".Rdata')")))
+      }
+    }
+    #Save selec_sim vector
+    eval(parse(text = paste0("save(selec_sim, file='./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+  }
+  
+  ###Scenario 3
+  if (scenarios[s]=="S3"){
+    selec_sim <- c(1:n.sim)
+    for (kp in 1:length(known.per)){
+      for (j in 2:length(n.save)) {
+        ##Shared Component Model
+        for (mt in 1:length(model.type)) {
+          eval(parse(text = paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/",scenarios[s],"_",model.type[mt],"_",n.save[j],".RData')")))
+          eval(parse(text = paste0("res <- results_shared_",name.model[mt]))) 
+        
+          for (l in 1:length(res)) {
+            if (is.null(res[[l]])){
+              if (length(which(selec_sim==(l+n.save[j-1])))!=0){
+                selec_sim <- selec_sim[-which(selec_sim==(l+n.save[j-1]))]
+              }
+            }
+          }
+        }
+        rm(list=c("res"))
+          
+        ## M-model
+        for (p in 1:length(priors)) {
+          for (d in 1:length(method)) {
+            eval(parse(text= paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/M_Model/",scenarios[s],"_",priors[p],"_",method[d],"_",n.save[j],".RData')")))
+            eval(parse(text = paste0("res <- results_",priors[p],"_",method[d],"_specI")))
+
+            for (l in 1:length(res)) {
+              if (is.null(res[[l]])){
+                if (length(which(selec_sim==(l+n.save[j-1])))!=0){
+                 selec_sim <- selec_sim[-which(selec_sim==(l+n.save[j-1]))]
+                }
+              }
+            }
+            rm(list=c("res"))
+          }
+        }
+      }
+    }
+    #choose 100 simulations
+    set.seed(230821)
+    selec_sim <- sort(sample(selec_sim,100,replace = F))
+    
+    #Save selected 100 simulations
+    eval(parse(text= paste0("load('./",scenarios[s],"/SimulationStudy_",scenarios[s],".Rdata')")))
+    
+    Data <- NULL
+    for (ss in selec_sim) {
+      Data <- rbind(Data,DataSIM[which(DataSIM$sim==ss),])
+    }
+    Data$disease <- factor(Data$disease, labels = c("inc","mort"))
+    Data$sim <- rep(1:100,each=n*2)
+    
+    DataSIM <- Data
+    
+    eval(parse(text = paste0("save(list=c('DataSIM','logRate'), file='./Selected_Simulations/",scenarios[s],"/SimulationStudy_",scenarios[s],".Rdata')")))
+    
+    #Save selec_sim vector
+    eval(parse(text = paste0("save(selec_sim, file='./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+  }
+  
+  ###Scenario 4
+  if (scenarios[s]=="S4"){
+    selec_sim <- c(1:n.sim)
+    for (kp in 1:length(known.per)){
+      for (v in 1:length(var_error)) {
+        for (j in 2:length(n.save)) {
+          ##Shared Component Model
+          for (mt in 1:length(model.type)) {
+          eval(parse(text = paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/sd_",var_error[v],"/",scenarios[s],"_",model.type[mt],"_sd_",var_error[v],"_",n.save[j],".RData')")))
+            eval(parse(text = paste0("res <- results_shared_",name.model[mt]))) 
+        
+            for (l in 1:length(res)) {
+              if (is.null(res[[l]])){
+                if (length(which(selec_sim==(l+n.save[j-1])))!=0){
+                  selec_sim <- selec_sim[-which(selec_sim==(l+n.save[j-1]))]
+                }
+              }
+            }
+          }
+          rm(list=c("res"))
+          
+          ## M-model
+          for (p in 1:length(priors)) {
+            for (d in 1:length(method)) {
+              eval(parse(text= paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"/",scenarios[s],"_",priors[p],"_",method[d],"_sd_",var_error[v],"_",n.save[j],".RData')")))
+              eval(parse(text = paste0("res <- results_",priors[p],"_",method[d],"_specI")))
+
+              for (l in 1:length(res)) {
+                if (is.null(res[[l]])){
+                  if (length(which(selec_sim==(l+n.save[j-1])))!=0){
+                   selec_sim <- selec_sim[-which(selec_sim==(l+n.save[j-1]))]
+                  }
+                }
+              }
+               rm(list=c("res"))
+            }
+          }
+        }
+      }
+    }
+    #choose 100 simulations
+    set.seed(230821)
+    selec_sim <- sort(sample(selec_sim,100,replace = F))
+    
+    #Save selected 100 simulations
+    for (v in 1:length(var_error)) {
+      eval(parse(text= paste0("load('./",scenarios[s],"/SimulationStudy_",scenarios[s],"_sd_error_",var_error[v],".Rdata')")))
+    
+      Data <- NULL
+      for (ss in selec_sim) {
+        Data <- rbind(Data,DataSIM[which(DataSIM$sim==ss),])
+      }
+      Data$disease <- factor(Data$disease, labels = c("inc","mort"))
+      Data$sim <- rep(1:100,each=n*2)
+      
+      DataSIM <- Data
+      
+      eval(parse(text = paste0("save(list=c('DataSIM','logRate'), file='./Selected_Simulations/",scenarios[s],"/SimulationStudy_",scenarios[s],"_sd_error_",var_error[v],".Rdata')")))
+    }
+      
+    #Save selec_sim vector
+    eval(parse(text = paste0("save(selec_sim, file='./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+  }
+  
+}
+
+```
+
+To save time and space when analysing the results of the simulation study, we made a copy of the fitted models by saving only the results of the 100 selected simulations and the elements we were interested in. In our case, these are the DIC and WAIC values, the summary of the fitted values and the marginals of the fitted values. We save the results of the fitted models in the folder `Selected_Simulations` . In this case, we save the results of the 100 fitted models in the same file. First, we create the necessary folders to save the results.
+
+```{r}
+## Folder to save results
+for (s in 1:length(scenarios)) {
+  for (kp in 1:length(known.per)) {
+    eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"')}")))
+  
+    ###### Shared Component Models
+    eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM')}")))
+  
+    eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M1'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M1')}")))
+  
+    eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M2'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M2')}")))
+  
+    eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M3'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M3')}")))
+    
+    ###### M-models
+    eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model')}")))
+    
+    if (scenarios[s]=="S1" | scenarios[s]=="S2"){
+      for (r in 1:length(ro)) {
+        for (v in 1:length(var_error)) {
+          eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M1/sd_",var_error[v],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[r],"_sd_",var_error[v],"')}")))
+  
+          eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M2/sd_",var_error[v],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[r],"_sd_",var_error[v],"')}")))
+    
+          eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M3/sd_",var_error[v],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[r],"_sd_",var_error[v],"')}")))
+        
+          eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model/ro_",ro[r],"_sd_",var_error[v],"')}")))
+        }
+      }
+    }
+    else if (scenarios[s]=="S4"){
+      for (v in 1:length(var_error)) {
+        eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M1/sd_",var_error[v],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M1/sd_",var_error[v],"')}")))
+  
+        eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M2/sd_",var_error[v],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M2/sd_",var_error[v],"')}")))
+    
+        eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M3/sd_",var_error[v],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/M3/sd_",var_error[v],"')}")))
+        
+        eval(parse(text = paste0("if(!file.exists('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"'))
+{dir.create('./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"')}")))
+      }
+    }
+  }
+}
+```
+
+Now, we save the results of the shared component models obtained in the 100 selected simulations and the elements we are interested in.
+
+```{r}
+#############################################################################################                    Shared Component Models                    ##########
+###################################################################################
+
+
+for (s in 1:length(scenarios)) {
+  ###Scenario0
+  if (scenarios[s]=="S0"){
+    #Open selec_sim
+    eval(parse(text = paste0("load('./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+    for (kp in 1:length(known.per)){
+      for (i in 1:length(ro)) {
+        for (mt in 1:length(model.type)) {
+          eval(parse(text = paste0("result_shared_",name.model[mt],"<-list()")))
+          for (j in 2:length(n.save)) {
+            eval(parse(text = paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/ro_",ro[i],"/",scenarios[s],"_",model.type[mt],"_ro_",ro[i],"_",n.save[j],".RData')")))
+            eval(parse(text = paste0("result_shared_",name.model[mt],"[(n.save[j-1]+1):n.save[j]] <- results_shared_",name.model[mt],"[1:20]"))) 
+          }
+          
+          eval(parse(text = paste0("results_shared_",name.model[mt],"<-list()")))
+          
+          eval(parse(text = paste0("save_index <- which(names(result_shared_",name.model[mt],"[[1]])=='dic' |
+          names(result_shared_",name.model[mt],"[[1]])=='waic' |
+          names(result_shared_",name.model[mt],"[[1]])=='summary.fitted.values' |
+          names(result_shared_",name.model[mt],"[[1]])=='marginals.fitted.values')")))
+          
+          eval(parse(text = paste0("results_shared_",name.model[mt]," <- lapply(1:n.sim, function(x) result_shared_",name.model[mt],"[[x]][save_index])")))
+          
+          eval(parse(text = paste0("results_shared_",name.model[mt]," <- results_shared_",name.model[mt],"[selec_sim]")))
+          
+          eval(parse(text = paste0("save(results_shared_",name.model[mt],", file='./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/ro_",ro[i],"_sd_error_",var_error[v],"/",scenarios[s],"_",model.type[mt],"_ro_",ro[i],".Rdata')")))
+          
+        }
+      }
+    }
+  }
+  
+  ###Scenario1 and Scenario2
+  if (scenarios[s]=="S1" | scenarios[s]=="S2"){
+    #Open selec_sim
+    eval(parse(text = paste0("load('./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+    for (kp in 1:length(known.per)){
+      for (i in 1:length(ro)) {
+        for (v in 1:length(var_error)) {
+          for (mt in 1:length(model.type)) {
+            eval(parse(text = paste0("result_shared_",name.model[mt]," <- list()")))
+            for (j in 2:length(n.save)) {
+              eval(parse(text = paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/ro_",ro[i],"_sd_",var_error[v],"/",scenarios[s],"_",model.type[mt],"_ro_",ro[i],"_sd_",var_error[v],"_",n.save[j],".RData')")))
+              eval(parse(text = paste0("result_shared_",name.model[mt],"[(n.save[j-1]+1):n.save[j]] <- results_shared_",name.model[mt],"[1:20]"))) 
+          
+            }
+            
+            eval(parse(text = paste0("results_shared_",name.model[mt]," <- list()")))
+            
+            eval(parse(text = paste0("save_index <- which(names(result_shared_",name.model[mt],"[[1]])=='dic' |
+          names(result_shared_",name.model[mt],"[[1]])=='waic' |
+          names(result_shared_",name.model[mt],"[[1]])=='summary.fitted.values' |
+          names(result_shared_",name.model[mt],"[[1]])=='marginals.fitted.values')")))
+          
+            eval(parse(text = paste0("results_shared_",name.model[mt]," <- lapply(1:n.sim, function(x) result_shared_",name.model[mt],"[[x]][save_index])")))
+          
+            eval(parse(text = paste0("results_shared_",name.model[mt]," <- results_shared_",name.model[mt],"[selec_sim]")))
+          
+            eval(parse(text = paste0("save(results_shared_",name.model[mt],", file='./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/ro_",ro[i],"_sd_",var_error[v],"/",scenarios[s],"_",model.type[mt],"_ro_",ro[i],"_sd_",var_error[v],".Rdata')")))
+          }
+        }
+      }
+    }
+  }
+  
+  ###Scenario3
+  if (scenarios[s]=="S3"){
+    #Open selec_sim
+    eval(parse(text = paste0("load('./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+    for (kp in 1:length(known.per)){
+      for (mt in 1:length(model.type)) {
+        eval(parse(text = paste0("result_shared_",name.model[mt]," <- list()")))
+        for (j in 2:length(n.save)) {
+          eval(parse(text = paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/",scenarios[s],"_",model.type[mt],"_",n.save[j],".RData')")))
+          eval(parse(text = paste0("result_shared_",name.model[mt],"[(n.save[j-1]+1):n.save[j]] <- results_shared_",name.model[mt],"[1:20]")))  
+        }
+      
+        eval(parse(text = paste0("results_shared_",name.model[mt]," <- list()")))
+            
+        eval(parse(text = paste0("save_index <- which(names(result_shared_",name.model[mt],"[[1]])=='dic' |
+          names(result_shared_",name.model[mt],"[[1]])=='waic' |
+          names(result_shared_",name.model[mt],"[[1]])=='summary.fitted.values' |
+          names(result_shared_",name.model[mt],"[[1]])=='marginals.fitted.values')")))
+          
+        eval(parse(text = paste0("results_shared_",name.model[mt]," <- lapply(1:n.sim, function(x) result_shared_",name.model[mt],"[[x]][save_index])")))
+          
+        eval(parse(text = paste0("results_shared_",name.model[mt]," <- results_shared_",name.model[mt],"[selec_sim]")))
+          
+        eval(parse(text = paste0("save(results_shared_",name.model[mt],", file='./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/",scenarios[s],"_",model.type[mt],".Rdata')")))
+      }
+    }
+  }
+  
+  ####Scenario4
+  if (scenarios[s]=="S4"){
+    #Open selec_sim
+    eval(parse(text = paste0("load('./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+    for (kp in 1:length(known.per)){
+      for (v in 1:length(var_error)) {
+        for (mt in 1:length(model.type)) {
+          eval(parse(text = paste0("result_shared_",name.model[mt]," <- list()")))
+          for (j in 2:length(n.save)) {
+          eval(parse(text = paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/sd_",var_error[v],"/",scenarios[s],"_",model.type[mt],"_sd_",var_error[v],"_",n.save[j],".RData')")))
+            eval(parse(text = paste0("result_shared_",name.model[mt],"[(n.save[j-1]+1):n.save[j]] <- results_shared_",name.model[mt],"[1:20]")))  
+        
+          }
+          
+          eval(parse(text = paste0("results_shared_",name.model[mt]," <- list()")))
+            
+          eval(parse(text = paste0("save_index <- which(names(result_shared_",name.model[mt],"[[1]])=='dic' |
+          names(result_shared_",name.model[mt],"[[1]])=='waic' |
+          names(result_shared_",name.model[mt],"[[1]])=='summary.fitted.values' |
+          names(result_shared_",name.model[mt],"[[1]])=='marginals.fitted.values')")))
+          
+          eval(parse(text = paste0("results_shared_",name.model[mt]," <- lapply(1:n.sim, function(x) result_shared_",name.model[mt],"[[x]][save_index])")))
+          
+          eval(parse(text = paste0("results_shared_",name.model[mt]," <- results_shared_",name.model[mt],"[selec_sim]")))
+          
+          eval(parse(text = paste0("save(results_shared_",name.model[mt],", file='./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/SCM/",model.type[mt],"/sd_",var_error[v],"/",scenarios[s],"_",model.type[mt],"_sd_",var_error[v],".Rdata')")))
+        }
+      }
+    }
+  }
+}
+```
+
+Finally, we save the results of the M-models obtained in the 100 selected simulations and the elements we are interested in.
+
+```{r}
+#############################################################################################                            M-Models                           ##########
+###################################################################################
+
+
+for (s in 1:length(scenarios)) {
+  for (p in 1:length(priors)) {
+    for (d in 1:length(method)) {
+      ###Scenario0
+      if (scenarios[s]=="S0"){
+        #Open selec_sim
+        eval(parse(text = paste0("load('./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+        for (kp in 1:length(known.per)){
+          for (i in 1:length(ro)) {
+            eval(parse(text = paste0("result_",priors[p],"_",method[d],"_specI<-list()")))
+            for (j in 2:length(n.save)) {
+              eval(parse(text= paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"/",scenarios[s],"_",priors[p],"_",method[d],"_ro_",ro[i],"_",n.save[j],".RData')")))
+              eval(parse(text = paste0("result_",priors[p],"_",method[d],"_specI[(n.save[j-1]+1):n.save[j]] <- results_",priors[p],"_",method[d],"_specI[1:20]")))
+            }
+          
+            eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI<-list()")))
+          
+            eval(parse(text = paste0("save_index <- which(names(result_",priors[p],"_",method[d],"_specI[[1]])=='dic' |
+            names(result_",priors[p],"_",method[d],"_specI[[1]])=='waic' |
+            names(result_",priors[p],"_",method[d],"_specI[[1]])=='summary.fitted.values' |
+            names(result_",priors[p],"_",method[d],"_specI[[1]])=='marginals.fitted.values')")))
+          
+            eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- lapply(1:n.sim, function(x) result_",priors[p],"_",method[d],"_specI[[x]][save_index])")))
+          
+            eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- results_",priors[p],"_",method[d],"_specI[selec_sim]")))
+          
+            eval(parse(text = paste0("save(results_",priors[p],"_",method[d],"_specI, file='./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"/",scenarios[s],"_",priors[p],"_",method[d],"_ro_",ro[i],".Rdata')")))
+          
+          }
+        }
+      }
+  
+  
+      ###Scenario1 and Scenario2
+      if (scenarios[s]=="S1" | scenarios[s]=="S2"){
+        #Open selec_sim
+        eval(parse(text = paste0("load('./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+        for (kp in 1:length(known.per)){
+          for (i in 1:length(ro)) {
+            for (v in 1:length(var_error)) {
+              eval(parse(text = paste0("result_",priors[p],"_",method[d],"_specI<-list()")))
+              for (j in 2:length(n.save)) {
+                eval(parse(text= paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"/",scenarios[s],"_",priors[p],"_",method[d],"_ro_",ro[i],"_sd_",var_error[v],"_",n.save[j],".RData')")))
+                eval(parse(text = paste0("result_",priors[p],"_",method[d],"_specI[(n.save[j-1]+1):n.save[j]] <- results_",priors[p],"_",method[d],"_specI[1:20]"))) 
+          
+              }
+            
+              eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- list()")))
+            
+              eval(parse(text = paste0("save_index <- which(names(result_",priors[p],"_",method[d],"_specI[[1]])=='dic' |
+          names(result_",priors[p],"_",method[d],"_specI[[1]])=='waic' |
+          names(result_",priors[p],"_",method[d],"_specI[[1]])=='summary.fitted.values' |
+          names(result_",priors[p],"_",method[d],"_specI[[1]])=='marginals.fitted.values')")))
+          
+              eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- lapply(1:n.sim, function(x) result_",priors[p],"_",method[d],"_specI[[x]][save_index])")))
+          
+              eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- results_",priors[p],"_",method[d],"_specI[selec_sim]")))
+          
+              eval(parse(text = paste0("save(results_",priors[p],"_",method[d],"_specI, file='./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"/",scenarios[s],"_",priors[p],"_",method[d],"_ro_",ro[i],"_sd_",var_error[v],".Rdata')")))
+            }
+          }
+        }
+      }
+  
+  
+      ###Scenario3
+      if (scenarios[s]=="S3"){
+        #Open selec_sim
+        eval(parse(text = paste0("load('./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+        for (kp in 1:length(known.per)){
+          eval(parse(text = paste0("result_",priors[p],"_",method[d],"_specI<-list()")))
+          for (j in 2:length(n.save)) {
+            eval(parse(text= paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/M_Model/",scenarios[s],"_",priors[p],"_",method[d],"_",n.save[j],".RData')")))
+            eval(parse(text = paste0("result_",priors[p],"_",method[d],"_specI[(n.save[j-1]+1):n.save[j]] <- results_",priors[p],"_",method[d],"_specI[1:20]")))  
+          }
+        
+          eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- list()")))
+              
+          eval(parse(text = paste0("save_index <- which(names(result_",priors[p],"_",method[d],"_specI[[1]])=='dic' |
+            names(result_",priors[p],"_",method[d],"_specI[[1]])=='waic' |
+            names(result_",priors[p],"_",method[d],"_specI[[1]])=='summary.fitted.values' |
+            names(result_",priors[p],"_",method[d],"_specI[[1]])=='marginals.fitted.values')")))
+            
+          eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- lapply(1:n.sim, function(x) result_",priors[p],"_",method[d],"_specI[[x]][save_index])")))
+            
+          eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- results_",priors[p],"_",method[d],"_specI[selec_sim]")))
+            
+          eval(parse(text = paste0("save(results_",priors[p],"_",method[d],"_specI, file='./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model/",scenarios[s],"_",priors[p],"_",method[d],".Rdata')")))
+        }
+      }
+  
+  
+      ####Scenario4
+      if (scenarios[s]=="S4"){
+        #Open selec_sim
+        eval(parse(text = paste0("load('./Selected_Simulations/",scenarios[s],"/Selec_sim_",scenarios[s],".Rdata')")))
+        for (kp in 1:length(known.per)){
+          for (v in 1:length(var_error)) {
+            eval(parse(text = paste0("result_",priors[p],"_",method[d],"_specI<-list()")))
+            for (j in 2:length(n.save)) {
+              eval(parse(text= paste0("load('./",scenarios[s],"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"/",scenarios[s],"_",priors[p],"_",method[d],"_sd_",var_error[v],"_",n.save[j],".RData')")))
+              eval(parse(text = paste0("result_",priors[p],"_",method[d],"_specI[(n.save[j-1]+1):n.save[j]] <- results_",priors[p],"_",method[d],"_specI[1:20]")))  
+        
+            }
+          
+            eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- list()")))
+            
+            eval(parse(text = paste0("save_index <- which(names(result_",priors[p],"_",method[d],"_specI[[1]])=='dic' |
+          names(result_",priors[p],"_",method[d],"_specI[[1]])=='waic' |
+          names(result_",priors[p],"_",method[d],"_specI[[1]])=='summary.fitted.values' |
+          names(result_",priors[p],"_",method[d],"_specI[[1]])=='marginals.fitted.values')")))
+          
+            eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- lapply(1:n.sim, function(x) result_",priors[p],"_",method[d],"_specI[[x]][save_index])")))
+          
+            eval(parse(text = paste0("results_",priors[p],"_",method[d],"_specI <- results_",priors[p],"_",method[d],"_specI[selec_sim]")))
+          
+            eval(parse(text = paste0("save(results_",priors[p],"_",method[d],"_specI, file='./Selected_Simulations/",scenarios[s],"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"/",scenarios[s],"_",priors[p],"_",method[d],"_sd_",var_error[v],".Rdata')")))
+          }
+        }
+      }
+    }
+  }
+}
+```

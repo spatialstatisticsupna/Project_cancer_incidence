@@ -1,0 +1,1151 @@
+# Model Fitting
+
+The code to fit the SCMs and M-models proposed in the paper can be found in this R code.
+
+In a first step we load the necessary packages.
+
+```{r}
+library(INLA)
+library(spdep)
+```
+
+Then, we load the cartography to be used and we create the spatial neighborhood matrix.
+
+```{r}
+load("./data/CartoSpainProv.RData")
+carto_use <- Carto_prov
+carto_use$ID <- as.numeric(carto_use$ID)
+
+adj<-spdep::poly2nb(carto_use)
+W <- as(nb2mat(adj, style = "B"), "Matrix")
+
+## Spatial neighborhood matrix (Q_{xi})
+spdep::nb2INLA("carto_nb.graph", spdep::poly2nb(carto_use))
+g <- INLA::inla.read.graph("carto_nb.graph")
+```
+
+The necessary constants to fit the multivariate models proposed in the paper are:
+
+-   `known.per`: percentages of coverage defined.
+
+-   `missing.areas`: a list with the index of the areas that are going to be considered as missing
+
+-   `ro`: the $\rho$ values defined to obtain different cancer lethality levels in Scenario 0, Scenario 1 and Scenario 2 of the simulation study.
+
+-   `var_error`: the standard deviation values defined for the unstructured spatial effects defined in Scenario 1, Scenario 2 and Scenario 4 of the simulation study.
+
+-   `n.sim`: number of simulations
+
+```{r}
+known.per <- c("100","90","80","70","60","50","40","30")
+
+missing.areas <- list(
+  c(),
+  c(05,09,34,40,47),
+  c(05,09,24,34,37,40,42,47,49),
+  c(05,09,15,24,27,32,34,36,37,39,40,42,47,49),
+  c(05,06,09,10,15,19,24,27,32,34,36,37,39,40,42,47,49),
+  c(04,05,06,09,10,11,14,15,19,21,23,24,27,29,32,34,36,37,39,40,41,42,47,49),
+  c(03,04,05,06,09,10,11,14,15,19,21,23,24,27,28,29,32,34,36,37,39,40,41,42,
+    44,45,46,47,49),
+  c(03,04,05,06,08,09,10,11,14,15,19,21,22,23,24,25,27,28,29,32,34,36,37,39,
+    40,41,42,44,45,46,47,49)
+)
+
+ro<-c(0.3,0.5,0.7,0.9)
+var_error <- c(0.05,0.1,0.2)
+
+n.sim <- 140
+```
+
+## Scenario 0
+
+In this section we have the code necessary to obtain the results of Scenario 0 defined in the simulation study of the paper. To do this, in a first step we define a variable with the name of the scenario. We do this because the code is very similar in all scenarios and this way we can easily change the name of the scenario.
+
+```{r}
+scenario <- "S0"
+
+```
+
+We create the folders to save the results.
+
+```{r}
+## Folder to save results
+for (kp in 1:length(known.per)) {
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"')}")))
+
+  ###### Shared Component Models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M1'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M1')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M2'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M2')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M3'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M3')}")))
+
+  for (i in 1:length(ro)) {
+    eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"')}")))
+  }
+
+  ###### M-models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/M_Model'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/M_Model')}")))
+  for (i in 1:length(ro)) {
+    eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"')}")))
+  }
+}
+```
+
+### Shared Component Models
+
+We fit the proposed SCMs for each percentage of coverage. As we have 140 data-sets, we store the results 20 by 20 data-sets at a time. To do so, we define a variable called `c.save` and three lists each for the results of each model proposed in the paper. For Model1 we define `results_shared_unst`, for Model2 `results_shared_unst2` and for Model3 `results_shared_unst2_indep`. Then, we define the data to be used and we define as `NA` the count of cancer incidence data in the areas defined as missing. Finally, we fit the models and save the results.
+
+```{r}
+for (kp in 1:length(known.per)) {
+  c.save<-0
+
+  results_shared_unst<-list()
+  results_shared_unst2<-list()
+  results_shared_unst2_indep<-list()
+  for (i in 1:length(ro)) {
+
+    ##Data simulation
+    eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,"_ro_",ro[i],".Rdata')")))
+
+    ##Data
+    for (j in 1:n.sim) {
+      Data_sim <- DataSIM[DataSIM$sim==j,]
+      #missing values
+      for (ma in 1:length(missing.areas[[kp]])) {
+        Data_sim$observed[which(Data_sim$disease=="inc" & Data_sim$district==
+                            missing.areas[[kp]][ma])] <- NA
+      }
+
+      source("./functions/SharedModels_Model1.R")
+      source("./functions/SharedModels_Model2.R")
+      source("./functions/SharedModels_Model3.R")
+
+      ##Save results
+      ###Shared Component results:
+      eval(parse(text=paste0("results_shared_unst[",j-c.save,"] <- list(resul_",j,"=result_shared_unst)")))
+      eval(parse(text=paste0("results_shared_unst2[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2)")))
+      eval(parse(text=paste0("results_shared_unst2_indep[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2_indep)")))
+      rm(list=c("result_shared_unst","result_shared_unst2","result_shared_unst2_indep"))
+
+      if (j==20 | j==40 | j==60 | j==80 | j==100 | j==120){
+
+        #######################
+        ## Save the results ##
+        ######################
+        save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"/",scenario,"_M1_ro_",ro[i],"_",j,".RData") )
+        save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"/",scenario,"_M2_ro_",ro[i],"_",j,".RData") )
+        save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"/",scenario,"_M3_ro_",ro[i],"_",j,".RData") )
+
+        c.save<-c.save+20
+
+        results_shared_unst<-list()
+        results_shared_unst2<-list()
+        results_shared_unst2_indep<-list()
+      }
+      if(j==140){
+        #######################
+        ## Save the results ##
+        ######################
+        save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"/",scenario,"_M1_ro_",ro[i],"_",j,".RData") )
+        save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"/",scenario,"_M2_ro_",ro[i],"_",j,".RData") )
+        save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"/",scenario,"_M3_ro_",ro[i],"_",j,".RData") )
+
+        c.save<-0
+
+        results_shared_unst<-list()
+        results_shared_unst2<-list()
+        results_shared_unst2_indep<-list()
+      }
+    }
+  }
+}
+```
+
+### M-models
+
+We fit the proposed M-models for each percentage of coverage. As we have 140 data-sets, we store the results 20 by 20 data-sets at a time. To do so, we define a variable called `c.save` and a list for each spatial prior and modeling method defined in the paper. Then, we define the data to be used and we define as `NA` the count of cancer incidence data in the areas defined as missing. We prepare the data in a specific way to fit the M models. Finally, we fit the models and save the results.
+
+```{r}
+priors <- c("iCAR","LCAR","pCAR","BYM","BYM2")
+method <- c("FE","RE")
+
+for (kp in 1:length(known.per)) {
+
+  for (p in 1:length(priors)) {
+    for (m in 1:length(method)) {
+      eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+    }
+  }
+
+  c.save<-0
+
+  for (i in 1:length(ro)) {
+
+    ##Data simulation
+    eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,"_ro_",ro[i],".Rdata')")))
+
+    ##Data
+    for (j in 1:n.sim) {
+      Data_sim <- DataSIM[DataSIM$sim==j,]
+
+      #missing values
+      for (ma in 1:length(missing.areas[[kp]])) {
+        Data_sim$observed[which(Data_sim$disease=="inc" & Data_sim$district==
+                            missing.areas[[kp]][ma])] <- NA
+      }
+
+      ##Data organization for Mmodels:
+      crimes <- as.character(unique(Data_sim$disease))
+      J <- length(crimes)
+
+      data<-Data_sim
+
+      Data_Scenario<- vector('list',J)
+      names(Data_Scenario)<- crimes
+
+      Data_Scenario[[1]] <- data[data$disease=='inc',c('district', 'observed', 'population')]
+      Data_Scenario[[2]] <- data[data$disease=='mort',c('district', 'observed', 'population')]
+
+      ##colname ID_area --> ID_1
+      colnames(Data_Scenario[[1]])[1] <- 'ID'
+      colnames(Data_Scenario[[2]])[1] <- 'ID'
+      #Run the Mmodels:
+      source("./functions/Mmodels_Model4.R")
+      #Save results
+
+      ##Mmodels results:
+      for (l in 1:length(priors)) {
+        for (k in 1:length(method)) {
+          eval(parse(text=paste0("results_",priors[l],"_",method[k],"_specI[",j-c.save,"] <- list(resul_",j,"=",priors[l],".",method[k],"_specI)")))
+
+          rm(list=c(paste0(priors[l],".",method[k],"_specI")))
+        }
+      }
+
+      if (j==20 | j==40 | j==60 | j==80 | j==100 | j==120){
+
+        #######################
+        ## Save the results ##
+        ######################
+        for (l in 1:length(priors)) {
+          for (k in 1:length(method)) {
+          eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"/",scenario,"_",priors[l],"_",method[k],"_ro_",ro[i],"_",j,".RData')")))
+          }
+        }
+        c.save<-c.save+20
+
+        for (p in 1:length(priors)) {
+          for (m in 1:length(method)) {
+            eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+          }
+        }
+      }
+      if (j==140){
+        #######################
+        ## Save the results ##
+        ######################
+        for (l in 1:length(priors)) {
+          for (k in 1:length(method)) {
+          eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"/",scenario,"_",priors[l],"_",method[k],"_ro_",ro[i],"_",j,".RData')")))
+          }
+        }
+
+        c.save<-0
+
+        for (p in 1:length(priors)) {
+          for (m in 1:length(method)) {
+            eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## Scenario 1
+
+In this section we have the code necessary to obtain the results of Scenario 1 defined in the simulation study of the paper. We follow the save procedure as in Scenario 0.
+
+```{r}
+scenario <- "S1"
+
+```
+
+```{r}
+## Folder to save results
+for (kp in 1:length(known.per)) {
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"')}")))
+  
+  ###### Shared Component Models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM')}")))
+  
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M1'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M1')}")))
+  
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M2'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M2')}")))
+  
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M3'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M3')}")))
+  
+  for (v in 1:length(var_error)) {
+    for (i in 1:length(ro)) {
+      eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"_sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"_sd_",var_error[v],"')}")))
+  
+      eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"_sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"_sd_",var_error[v],"')}")))
+  
+      eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"_sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"_sd_",var_error[v],"')}")))
+    }
+  }
+  
+
+  ###### M-models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/M_Model'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/M_Model')}")))
+  for (v in 1:length(var_error)) {
+    for (i in 1:length(ro)) {
+      eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"')}")))
+    }
+  }
+}
+```
+
+### Shared Component Models
+
+```{r}
+for (kp in 1:length(known.per)) {
+  c.save<-0
+
+  results_shared_unst<-list()
+  results_shared_unst2<-list()
+  results_shared_unst2_indep<-list()
+
+  for (v in 1:length(var_error)) {
+    for (i in 1:length(ro)) {
+
+      ##Data simulation
+      eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,"_ro_",ro[i],"_sd_error_",var_error[v],".Rdata')")))
+
+      ##Data
+      for (j in 1:n.sim) {
+        Data_sim <- DataSIM[DataSIM$sim==j,]
+        #missing values
+        for (ma in 1:length(missing.areas[[kp]])) {
+          Data_sim$observed[which(Data_sim$disease == "inc" & Data_sim$district == missing.areas[[kp]][ma])] <- NA
+        }
+
+        source("./functions/SharedModels_Model1.R")
+        source("./functions/SharedModels_Model2.R")
+        source("./functions/SharedModels_Model3.R")
+
+        ##Save results
+        ###Shared Component results:
+        eval(parse(text=paste0("results_shared_unst[",j-c.save,"] <- list(resul_",j,"=result_shared_unst)")))
+        eval(parse(text=paste0("results_shared_unst2[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2)")))
+        eval(parse(text=paste0("results_shared_unst2_indep[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2_indep)")))
+        rm(list=c("result_shared_unst","result_shared_unst2","result_shared_unst2_indep"))
+
+        if (j==20 | j==40 | j==60 | j==80 | j==100 | j=120){
+
+          #######################
+          ## Save the results ##
+          ######################
+          save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M1_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+          save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M2_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+          save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M3_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+
+          c.save<-c.save+20
+
+          results_shared_unst<-list()
+          results_shared_unst2<-list()
+          results_shared_unst2_indep<-list()
+        }
+        if(j==140){
+          #######################
+          ## Save the results ##
+          ######################
+          save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M1_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+          save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M2_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+          save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M3_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+
+          c.save<-0
+
+          results_shared_unst<-list()
+          results_shared_unst2<-list()
+          results_shared_unst2_indep<-list()
+        }
+      }
+    }
+  }
+}
+```
+
+### M-models
+
+```{r}
+priors <- c("iCAR","LCAR","pCAR","BYM","BYM2")
+method <- c("FE","RE")
+
+for (kp in 1:length(known.per)) {
+
+  for (p in 1:length(priors)) {
+    for (m in 1:length(method)) {
+      eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+    }
+  }
+
+  c.save<-0
+
+  for (v in 1:length(var_error)) {
+    for (i in 1:length(ro)) {
+
+      ##Data simulation
+      eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,"_ro_",ro[i],"_sd_error_",var_error[v],".Rdata')")))
+
+      ##Data
+      for (j in 1:n.sim) {
+        Data_sim <- DataSIM[DataSIM$sim==j,]
+
+        #missing values
+        for (ma in 1:length(missing.areas[[kp]])) {
+          Data_sim$observed[which(Data_sim$disease=="inc" & Data_sim$district==
+                            missing.areas[[kp]][ma])] <- NA
+        }
+
+        ##Data organization for Mmodels:
+        crimes <- as.character(unique(Data_sim$disease))
+        J <- length(crimes)
+
+        data<-Data_sim
+
+        Data_Scenario<- vector('list',J)
+        names(Data_Scenario)<- crimes
+
+        Data_Scenario[[1]] <- data[data$disease=='inc',c('district', 'observed', 'population')]
+        Data_Scenario[[2]] <- data[data$disease=='mort',c('district', 'observed', 'population')]
+
+        ##colname ID_area --> ID
+        colnames(Data_Scenario[[1]])[1] <- 'ID'
+        colnames(Data_Scenario[[2]])[1] <- 'ID'
+        #Run the Mmodels:
+        source("./functions/Mmodels_Model4.R")
+
+        #Save results
+        ##Mmodels results:
+        for (l in 1:length(priors)) {
+          for (k in 1:length(method)) {
+            eval(parse(text=paste0("results_",priors[l],"_",method[k],"_specI[",j-c.save,"] <- list(resul_",j,"=",priors[l],".",method[k],"_specI)")))
+
+            rm(list=c(paste0(priors[l],".",method[k],"_specI")))
+          }
+        }
+
+        if (j==20 | j==40 | j==60 | j==80 | j==100 | j==120){
+
+          #######################
+          ## Save the results ##
+          ######################
+          for (l in 1:length(priors)) {
+            for (k in 1:length(method)) {
+            eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_",priors[l],"_",method[k],"_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData')")))
+            }
+          }
+          c.save<-c.save+20
+
+          for (p in 1:length(priors)) {
+            for (m in 1:length(method)) {
+              eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+            }
+          }
+        }
+        if (j==140){
+          #######################
+          ## Save the results ##
+          ######################
+          for (l in 1:length(priors)) {
+            for (k in 1:length(method)) {
+            eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_",priors[l],"_",method[k],"_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData')")))
+            }
+          }
+
+          c.save<-0
+
+          for (p in 1:length(priors)) {
+            for (m in 1:length(method)) {
+              eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## Scenario 2
+
+In this section we have the code necessary to obtain the results of Scenario 2 defined in the simulation study of the paper. We follow the save procedure as in Scenario 0.
+
+```{r}
+scenario <- "S2"
+
+```
+
+```{r}
+## Folder to save results
+for (kp in 1:length(known.per)) {
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"')}")))
+
+  ###### Shared Component Models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M1'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M1')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M2'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M2')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M3'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M3')}")))
+
+  for (v in 1:length(var_error)) {
+    for (i in 1:length(ro)) {
+      eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"_sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"_sd_",var_error[v],"')}")))
+
+      eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"_sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"_sd_",var_error[v],"')}")))
+
+      eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"_sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"_sd_",var_error[v],"')}")))
+    }
+  }
+
+
+  ###### M-models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/M_Model'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/M_Model')}")))
+  for (v in 1:length(var_error)) {
+    for (i in 1:length(ro)) {
+      eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"')}")))
+    }
+  }
+}
+```
+
+### Shared Component Models
+
+```{r}
+for (kp in 1:length(known.per)) {
+  c.save<-0
+
+  results_shared_unst<-list()
+  results_shared_unst2<-list()
+  results_shared_unst2_indep<-list()
+
+  for (v in 1:length(var_error)) {
+    for (i in 1:length(ro)) {
+
+      ##Data simulation
+      eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,"_ro_",ro[i],"_sd_error_",var_error[v],".Rdata')")))
+
+      ##Data
+      for (j in 1:n.sim) {
+        Data_sim <- DataSIM[DataSIM$sim==j,]
+        #missing values
+        for (ma in 1:length(missing.areas[[kp]])) {
+          Data_sim$observed[which(Data_sim$disease == "inc" & Data_sim$district == missing.areas[[kp]][ma])] <- NA
+        }
+
+        source("./functions/SharedModels_Model1.R")
+        source("./functions/SharedModels_Model2.R")
+        source("./functions/SharedModels_Model3.R")
+
+        ##Save results
+        ###Shared Component results:
+        eval(parse(text=paste0("results_shared_unst[",j-c.save,"] <- list(resul_",j,"=result_shared_unst)")))
+        eval(parse(text=paste0("results_shared_unst2[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2)")))
+        eval(parse(text=paste0("results_shared_unst2_indep[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2_indep)")))
+        rm(list=c("result_shared_unst","result_shared_unst2","result_shared_unst2_indep"))
+
+        if (j==20 | j==40 | j==60 | j==80 | j==100 | j=120 ){
+
+          #######################
+          ## Save the results ##
+          ######################
+          save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M1_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+          save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M2_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+          save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M3_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+
+          c.save<-c.save+20
+
+          results_shared_unst<-list()
+          results_shared_unst2<-list()
+          results_shared_unst2_indep<-list()
+        }
+        if(j==140){
+          #######################
+          ## Save the results ##
+          ######################
+          save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M1_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+          save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M2_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+          save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_M3_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData") )
+
+          c.save<-0
+
+          results_shared_unst<-list()
+          results_shared_unst2<-list()
+          results_shared_unst2_indep<-list()
+        }
+      }
+    }
+  }
+}
+```
+
+### M-models
+
+```{r}
+priors <- c("iCAR","LCAR","pCAR","BYM","BYM2")
+method <- c("FE","RE")
+
+for (kp in 1:length(known.per)) {
+
+  for (p in 1:length(priors)) {
+    for (m in 1:length(method)) {
+      eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+    }
+  }
+
+  c.save<-0
+
+  for (v in 1:length(var_error)) {
+    for (i in 1:length(ro)) {
+
+      ##Data simulation
+      eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,"_ro_",ro[i],"_sd_error_",var_error[v],".Rdata')")))
+
+      ##Data
+      for (j in 1:n.sim) {
+        Data_sim <- DataSIM[DataSIM$sim==j,]
+
+        #missing values
+        for (ma in 1:length(missing.areas[[kp]])) {
+          Data_sim$observed[which(Data_sim$disease=="inc" & Data_sim$district==
+                            missing.areas[[kp]][ma])] <- NA
+        }
+
+        ##Data organization for Mmodels:
+        crimes <- as.character(unique(Data_sim$disease))
+        J <- length(crimes)
+
+        data<-Data_sim
+
+        Data_Scenario<- vector('list',J)
+        names(Data_Scenario)<- crimes
+
+        Data_Scenario[[1]] <- data[data$disease=='inc',c('district', 'observed', 'population')]
+        Data_Scenario[[2]] <- data[data$disease=='mort',c('district', 'observed', 'population')]
+
+        ##colname ID_area --> ID
+        colnames(Data_Scenario[[1]])[1] <- 'ID'
+        colnames(Data_Scenario[[2]])[1] <- 'ID'
+        #Run the Mmodels:
+        source("./functions/Mmodels_Model4.R")
+
+        #Save results
+        ##Mmodels results:
+        for (l in 1:length(priors)) {
+          for (k in 1:length(method)) {
+            eval(parse(text=paste0("results_",priors[l],"_",method[k],"_specI[",j-c.save,"] <- list(resul_",j,"=",priors[l],".",method[k],"_specI)")))
+
+            rm(list=c(paste0(priors[l],".",method[k],"_specI")))
+          }
+        }
+
+        if (j==20 | j==40 | j==60 | j==80 | j==100 | j==120){
+
+          #######################
+          ## Save the results ##
+          ######################
+          for (l in 1:length(priors)) {
+            for (k in 1:length(method)) {
+            eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_",priors[l],"_",method[k],"_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData')")))
+            }
+          }
+          c.save<-c.save+20
+
+          for (p in 1:length(priors)) {
+            for (m in 1:length(method)) {
+              eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+            }
+          }
+        }
+        if (j==140){
+          #######################
+          ## Save the results ##
+          ######################
+          for (l in 1:length(priors)) {
+            for (k in 1:length(method)) {
+            eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/ro_",ro[i],"_sd_",var_error[v],"/",scenario,"_",priors[l],"_",method[k],"_ro_",ro[i],"_sd_",var_error[v],"_",j,".RData')")))
+            }
+          }
+
+          c.save<-0
+
+          for (p in 1:length(priors)) {
+            for (m in 1:length(method)) {
+              eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## Scenario 3
+
+In this section we have the code necessary to obtain the results of Scenario 3 defined in the simulation study of the paper. We follow the save procedure as in Scenario 0.
+
+```{r}
+scenario <- "S3"
+
+```
+
+```{r}
+## Folder to save results
+for (kp in 1:length(known.per)) {
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"')}")))
+
+  ###### Shared Component Models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M1'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M1')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M2'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M2')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M3'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M3')}")))
+
+
+  ###### M-models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/M_Model'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/M_Model')}")))
+}
+```
+
+### Shared Component Models
+
+```{r}
+for (kp in 1:length(known.per)) {
+  c.save<-0
+
+  results_shared_unst<-list()
+  results_shared_unst2<-list()
+  results_shared_unst2_indep<-list()
+
+  ##Data simulation
+  eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,".Rdata')")))
+
+  ##Data
+  for (j in 1:n.sim) {
+    Data_sim <- DataSIM[DataSIM$sim==j,]
+    #missing values
+    for (ma in 1:length(missing.areas[[kp]])) {
+      Data_sim$observed[which(Data_sim$disease == "inc" & Data_sim$district == missing.areas[[kp]][ma])] <- NA
+    }
+
+    source("./functions/SharedModels_Model1.R")
+    source("./functions/SharedModels_Model2.R")
+    source("./functions/SharedModels_Model3.R")
+
+    ##Save results
+    ###Shared Component results:
+    eval(parse(text=paste0("results_shared_unst[",j-c.save,"] <- list(resul_",j,"=result_shared_unst)")))
+    eval(parse(text=paste0("results_shared_unst2[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2)")))
+    eval(parse(text=paste0("results_shared_unst2_indep[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2_indep)")))
+    rm(list=c("result_shared_unst","result_shared_unst2","result_shared_unst2_indep"))
+
+    if (j==20 | j==40 | j==60 | j==80 | j==100 | j==120){
+      #######################
+      ## Save the results ##
+      ######################
+      save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/",scenario,"_M1_",j,".RData") )
+      save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/",scenario,"_M2_",j,".RData") )
+      save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/",scenario,"_M3_",j,".RData") )
+
+      c.save<-c.save+20
+
+      results_shared_unst<-list()
+      results_shared_unst2<-list()
+      results_shared_unst2_indep<-list()
+    }
+    if(j==140){
+      #######################
+      ## Save the results ##
+      ######################
+      save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/",scenario,"_M1_",j,".RData") )
+      save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/",scenario,"_M2_",j,".RData") )
+      save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/",scenario,"_M3_",j,".RData") )
+
+      c.save<-0
+
+      results_shared_unst<-list()
+      results_shared_unst2<-list()
+      results_shared_unst2_indep<-list()
+    }
+  }
+}
+
+```
+
+### M-models
+
+```{r}
+priors <- c("iCAR","LCAR","pCAR","BYM","BYM2")
+method <- c("FE","RE")
+
+for (kp in 1:length(known.per)) {
+
+  for (p in 1:length(priors)) {
+    for (m in 1:length(method)) {
+      eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+    }
+  }
+
+  c.save<-0
+
+  ##Data simulation
+  eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,".Rdata')")))
+
+  ##Data
+  for (j in 1:n.sim) {
+    Data_sim <- DataSIM[DataSIM$sim==j,]
+
+    #missing values
+    for (ma in 1:length(missing.areas[[kp]])) {
+      Data_sim$observed[which(Data_sim$disease=="inc" & Data_sim$district==
+                        missing.areas[[kp]][ma])] <- NA
+    }
+
+    ##Data organization for Mmodels:
+    crimes <- as.character(unique(Data_sim$disease))
+    J <- length(crimes)
+
+    data<-Data_sim
+
+    Data_Scenario<- vector('list',J)
+    names(Data_Scenario)<- crimes
+
+    Data_Scenario[[1]] <- data[data$disease=='inc',c('district', 'observed', 'population')]
+    Data_Scenario[[2]] <- data[data$disease=='mort',c('district', 'observed', 'population')]
+
+    ##colname ID_area --> ID
+    colnames(Data_Scenario[[1]])[1] <- 'ID'
+    colnames(Data_Scenario[[2]])[1] <- 'ID'
+    #Run the Mmodels:
+    source("./functions/Mmodels_Model4.R")
+
+    #Save results
+    ##Mmodels results:
+    for (l in 1:length(priors)) {
+      for (k in 1:length(method)) {
+        eval(parse(text=paste0("results_",priors[l],"_",method[k],"_specI[",j-c.save,"] <- list(resul_",j,"=",priors[l],".",method[k],"_specI)")))
+
+        rm(list=c(paste0(priors[l],".",method[k],"_specI")))
+      }
+    }
+
+    if (j==20 | j==40 | j==60 | j==80 | j==100 | j==120){
+
+      #######################
+      ## Save the results ##
+      ######################
+      for (l in 1:length(priors)) {
+        for (k in 1:length(method)) {
+        eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/",scenario,"_",priors[l],"_",method[k],"_",j,".RData')")))
+        }
+      }
+      c.save<-c.save+20
+
+      for (p in 1:length(priors)) {
+        for (m in 1:length(method)) {
+          eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+        }
+      }
+    }
+    if (j==140){
+      #######################
+      ## Save the results ##
+      ######################
+      for (l in 1:length(priors)) {
+        for (k in 1:length(method)) {
+        eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/",scenario,"_",priors[l],"_",method[k],"_",j,".RData')")))
+        }
+      }
+
+      c.save<-0
+
+      for (p in 1:length(priors)) {
+        for (m in 1:length(method)) {
+          eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+        }
+      }
+    }
+  }
+}
+
+```
+
+## Scenario 4
+
+In this section we have the code necessary to obtain the results of Scenario 4 defined in the simulation study of the paper. We follow the save procedure as in Scenario 0.
+
+```{r}
+scenario <- "S4"
+
+```
+
+```{r}
+## Folder to save results
+for (kp in 1:length(known.per)) {
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"')}")))
+  
+  ###### Shared Component Models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM')}")))
+  
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M1'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M1')}")))
+  
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M2'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M2')}")))
+  
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M3'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M3')}")))
+  
+  for (v in 1:length(var_error)) {
+    eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M1/sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M1/sd_",var_error[v],"')}")))
+  
+    eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M2/sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M2/sd_",var_error[v],"')}")))
+  
+    eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/SCM/M3/sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/SCM/M3/sd_",var_error[v],"')}")))
+  }
+  
+
+  ###### M-models
+  eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/M_Model'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/M_Model')}")))
+  for (v in 1:length(var_error)) {
+    eval(parse(text = paste0("if(!file.exists('./",scenario,"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"'))
+{dir.create('./",scenario,"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"')}")))
+  }
+}
+```
+
+### Shared Component Models
+
+```{r}
+for (kp in 1:length(known.per)) {
+  c.save<-0
+  
+  results_shared_unst<-list()
+  results_shared_unst2<-list()
+  results_shared_unst2_indep<-list()
+  
+  for (v in 1:length(var_error)) {
+
+    ##Data simulation
+    eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,"_sd_error_",var_error[v],".Rdata')")))
+
+    ##Data
+    for (j in 1:n.sim) {
+      Data_sim <- DataSIM[DataSIM$sim==j,]
+      #missing values
+      for (ma in 1:length(missing.areas[[kp]])) {
+        Data_sim$observed[which(Data_sim$disease == "inc" & Data_sim$district == missing.areas[[kp]][ma])] <- NA
+      }
+
+      source("./functions/SharedModels_Model1.R")
+      source("./functions/SharedModels_Model2.R")
+      source("./functions/SharedModels_Model3.R")
+
+      ##Save results
+      ###Shared Component results:
+      eval(parse(text=paste0("results_shared_unst[",j-c.save,"] <- list(resul_",j,"=result_shared_unst)")))
+      eval(parse(text=paste0("results_shared_unst2[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2)")))
+      eval(parse(text=paste0("results_shared_unst2_indep[",j-c.save,"] <- list(resul_",j,"=result_shared_unst2_indep)")))
+      rm(list=c("result_shared_unst","result_shared_unst2","result_shared_unst2_indep"))
+
+      if (j==20 | j==40 | j==60 | j==80 | j==100 | j==120){
+
+        #######################
+        ## Save the results ##
+        ######################
+        save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/sd_",var_error[v],"/",scenario,"_M1_sd_",var_error[v],"_",j,".RData") )
+        save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/sd_",var_error[v],"/",scenario,"_M2_sd_",var_error[v],"_",j,".RData") )
+        save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/sd_",var_error[v],"/",scenario,"_M3_sd_",var_error[v],"_",j,".RData") )
+
+        c.save<-c.save+20
+
+        results_shared_unst<-list()
+        results_shared_unst2<-list()
+        results_shared_unst2_indep<-list()
+      }
+      if(j==140){
+        #######################
+        ## Save the results ##
+        ######################
+        save(results_shared_unst, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M1/sd_",var_error[v],"/",scenario,"_M1_sd_",var_error[v],"_",j,".RData") )
+        save(results_shared_unst2, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M2/sd_",var_error[v],"/",scenario,"_M2_sd_",var_error[v],"_",j,".RData") )
+        save(results_shared_unst2_indep, file= paste0("./",scenario,"/Cov_",known.per[kp],"/SCM/M3/sd_",var_error[v],"/",scenario,"_M3_sd_",var_error[v],"_",j,".RData") )
+          
+        c.save<-0
+          
+        results_shared_unst<-list()
+        results_shared_unst2<-list()
+        results_shared_unst2_indep<-list()
+      }
+    }
+  }
+}
+```
+
+### M-models
+
+```{r}
+priors <- c("iCAR","LCAR","pCAR","BYM","BYM2")
+method <- c("FE","RE")
+
+for (kp in 1:length(known.per)) {
+
+  for (p in 1:length(priors)) {
+    for (m in 1:length(method)) {
+      eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+    }
+  }
+
+  c.save<-0
+
+  for (v in 1:length(var_error)) {
+
+    ##Data simulation
+    eval(parse(text= paste0("load('./",scenario,"/SimulationStudy_",scenario,"_sd_error_",var_error[v],".Rdata')")))
+
+    ##Data
+    for (j in 1:n.sim) {
+      Data_sim <- DataSIM[DataSIM$sim==j,]
+
+      #missing values
+      for (ma in 1:length(missing.areas[[kp]])) {
+        Data_sim$observed[which(Data_sim$disease=="inc" & Data_sim$district==
+                          missing.areas[[kp]][ma])] <- NA
+      }
+
+      ##Data organization for Mmodels:
+      crimes <- as.character(unique(Data_sim$disease))
+      J <- length(crimes)
+
+      data<-Data_sim
+
+      Data_Scenario<- vector('list',J)
+      names(Data_Scenario)<- crimes
+
+      Data_Scenario[[1]] <- data[data$disease=='inc',c('district', 'observed', 'population')]
+      Data_Scenario[[2]] <- data[data$disease=='mort',c('district', 'observed', 'population')]
+
+      ##colname ID_area --> ID
+      colnames(Data_Scenario[[1]])[1] <- 'ID'
+      colnames(Data_Scenario[[2]])[1] <- 'ID'
+      #Run the Mmodels:
+      source("./functions/Mmodels_Model4.R")
+
+      #Save results
+      ##Mmodels results:
+      for (l in 1:length(priors)) {
+        for (k in 1:length(method)) {
+          eval(parse(text=paste0("results_",priors[l],"_",method[k],"_specI[",j-c.save,"] <- list(resul_",j,"=",priors[l],".",method[k],"_specI)")))
+
+          rm(list=c(paste0(priors[l],".",method[k],"_specI")))
+        }
+      }
+
+      if (j==20 | j==40 | j==60 | j==80 | j==100 | j==120){
+
+        #######################
+        ## Save the results ##
+        ######################
+        for (l in 1:length(priors)) {
+          for (k in 1:length(method)) {
+          eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"/",scenario,"_",priors[l],"_",method[k],"_sd_",var_error[v],"_",j,".RData')")))
+          }
+        }
+        c.save<-c.save+20
+
+        for (p in 1:length(priors)) {
+          for (m in 1:length(method)) {
+            eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+          }
+        }
+      }
+      if (j==140){
+        #######################
+        ## Save the results ##
+        ######################
+        for (l in 1:length(priors)) {
+          for (k in 1:length(method)) {
+            eval(parse(text=paste0("save(results_",priors[l],"_",method[k],"_specI, file='./",scenario,"/Cov_",known.per[kp],"/M_Model/sd_",var_error[v],"/",scenario,"_",priors[l],"_",method[k],"_sd_",var_error[v],"_",j,".RData')")))
+          }
+        }
+
+        c.save<-0
+
+        for (p in 1:length(priors)) {
+          for (m in 1:length(method)) {
+            eval(parse(text = paste0("results_",priors[p],"_",method[m],"_specI<- list()")))
+          }
+        }
+      }
+    }
+  }
+}
+
+```

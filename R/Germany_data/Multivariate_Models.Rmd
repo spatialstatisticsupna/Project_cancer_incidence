@@ -1,0 +1,552 @@
+# Descriptive Analysis and Model Fitting using German incidence and mortality data
+
+The descriptive analysis code and the code to fit the SCMs and M-models proposed in the paper can be found in this R code. The code is the same for the three cancer sites analysed (lung cancer in females, prostate cancer and breast cancer).
+
+Note: Due to confidentiality, incidence and mortality data from Germany are not shown in the repository. Therefore, some modifications have been made to the data in order to replicate the analysis performed.
+
+In a first step we will load the necessary cartography and the data of the cancer location we want to analyse. The cancer locations will be lung cancer in females, prostate cancer or breast cancer whose data can be found in `lungF.rda`, `prostate.rda` and `breast.rda` respectively. These data sets consist in the variables:
+
+-   `ID_area`: a region index. Takes values 1 to 16.
+
+-   `population`: population
+
+-   `counts`: observed incidence and mortality counts.
+
+-   `health_outcome`: takes value "inc" for cancer incidence and value "mort" for cancer mortality.
+
+Depending on the cancer location we want to analyse we will have to load the corresponding data.
+
+```{r}
+load("./Data/CartoGermanyStates.Rdata")
+carto <- carto_state
+```
+
+```{r}
+load("./Data/lungF.rda")
+data <- lungF
+
+# load("./Data/prostate.rda")
+# data <- prostate
+
+# load("./Data/breast.rda")
+# data <- breast
+```
+
+As the code is the same for all three cancer sites, we are going to create a variable with the name of the cancer site we are analysing. In this way, we can use it when saving results and not have to change the file names manually.
+
+```{r}
+cancer.location <- "Lung" #"Prostate"  #"Breast"
+```
+
+We create a folder to store the results for each cancer site.
+
+```{r}
+eval(parse(text = paste0("if(!file.exists('./",cancer.location,"'))
+{dir.create('./",cancer.location,"')}")))
+```
+
+## Descriptive Analysis
+
+In the descriptive analysis, crude incidence and mortality rates per 100,000 inhabitants have been plotted by region. For this purpose, the crude rates have to be calculated and represented with the `tmap`package. Therefore, we will first load the `tmap` package.
+
+```{r}
+library(tmap)
+
+```
+
+Then we create the folder where we will save the maps of crude incidence and mortality rates per 100,000 inhabitants by states.
+
+```{r}
+eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/figures'))
+{dir.create('./",cancer.location,"/figures')}")))
+```
+
+Next, we calculate crude incidence and mortality rates per 100,000 inhabitants. The formulas for computing crude incidence and mortality rates per 100,000 inhabitants are as follows$$r_{iI}=\frac{O_{iI}}{n_{iI}}*100,000$$ $$r_{iM}=\frac{O_{iM}}{n_{iM}}*100,000 $$
+
+```{r}
+rates_inc <- data$counts[which(data$health_outcome=="inc")]/data$population[which(data$health_outcome=="inc")]*10^5
+rates_mort <- data$counts[which(data$health_outcome=="mort")]/data$population[which(data$health_outcome=="mort")]*10^5
+
+carto$rates_inc <- rates_inc
+carto$rates_mort <- rates_mort
+```
+
+The last step is to plot the maps with the crude rates. Different color palettes can be used. This code shows the colors used in the document. Depending on the cancer site analysed, a different palette has been used. On the other hand, in the incidence map, `Rates.spat[[1]]`, the identity number of the areas have been added to the graph with the option `tm_text()`.
+
+```{r}
+#Paleta for lungF
+paleta <- c("#fddbc7","#f4a582","#d6604d","#b2182b","#67001f")
+#Paleta for prostate
+# paleta <- c("#f7f7f7","#d1e5f0","#92c5de","#4393c3","#2166ac","#053061")
+#Paleta for breast
+# paleta <- c("#f5f5f5","#f6e8c3","#dfc27d","#bf812d","#8c510a","#543005")
+
+break_points1 <- c(round(seq(min(rates_inc)-1, max(rates_inc)+1, length.out = 6),0))
+break_points2 <- c(round(seq(min(rates_mort)-1, max(rates_mort)+1, length.out = 6),0))
+
+Rates.spat<- list()
+Rates.spat[[1]]<- tm_shape(carto) +
+  tm_polygons(col=paste("rates_inc",sep=""),
+              palette=paleta, title="", legend.show=T, legend.reverse=T, style="fixed", breaks=break_points1, interval.closure="left",
+              labels = c(paste("<",break_points1[2]),paste(break_points1[2],"-",break_points1[3]),
+              paste(break_points1[3],"-",break_points1[4]),paste(break_points1[4],"-",break_points1[5]),
+              paste(">",break_points1[5]))) +
+  tm_layout(main.title=paste(cancer.location," Cancer"), main.title.position="left", legend.text.size=1.1, legend.outside = T ) +
+  tmap_options(check.and.fix = TRUE) +
+  tm_text(text="ID_1", size=1.5, fontface=5,
+          xmod = c(rep(0,3),+0.5,rep(0,12)),
+          ymod = c(rep(0,2),0.1,-1.3,rep(0,12)))
+
+Rates.spat[[2]]<- tm_shape(carto) +
+  tm_polygons(col=paste("rates_mort",sep=""),
+              palette=paleta, title="", legend.show=T, legend.reverse=T, style="fixed", breaks=break_points2, interval.closure="left",
+              labels = c(paste("<",break_points2[2]),paste(break_points2[2],"-",break_points2[3]),
+                         paste(break_points2[3],"-",break_points2[4]),paste(break_points2[4],"-",break_points2[5]),
+                         paste(">",break_points2[5]))) +
+  tm_layout(main.title=paste(cancer.location," Cancer"), main.title.position="left", legend.text.size=1.1, legend.outside = T)+
+  tmap_options(check.and.fix = TRUE)
+
+Map <- tmap_arrange(Rates.spat[[1]],Rates.spat[[2]])
+tmap_save(Map, file=paste0("./",cancer.location,"/figures/crude_rate_",cancer.location,".pdf"), width =12 , height= 6)
+
+
+```
+
+## Model Fitting
+
+In this section we have the code to fit the multivariate models proposed in the paper. You will find the code to fit the models with 100% of coverage and the different coverage defined in each of the removing strategies. Before implementing the models it is necessary to load a series of packages, define the spatial neighborhood matrix, define a set of constants and prepare the data to be able to fit the multivariate models.
+
+Therefore in a first step we will load the necessary packages `INLA` and `spdep`.
+
+```{r}
+library(INLA)
+library(spdep)
+```
+
+Is necessary to define the spatial neighborhood matrix. Moreover, we need to define the variable `ID_1` as numeric in the `SpatialPolygonsDataFrame` (`carto`) object as the code used to fit the M-models automatically sorts the variable from smallest to largest.
+
+```{r}
+carto$ID_1 <- as.numeric(carto$ID_1)
+
+## Transform 'SpatialPolygonsDataFrame' object to 'sf' class ##
+carto_use <- sf::st_as_sf(carto)
+
+adj<-spdep::poly2nb(carto)
+W <- as(nb2mat(adj, style = "B"), "Matrix")
+
+## Spatial neighborhood matrix (R_{xi})
+spdep::nb2INLA("carto_nb.graph", spdep::poly2nb(carto))
+g <- INLA::inla.read.graph("carto_nb.graph")
+```
+
+The necessary constants to fit the multivariate models proposed in the paper are:
+
+-   `n`: number of areas.
+
+-   `dis`: a vector with the names of the health-outcomes to analyze. In our case will be "inc" for incidence and "mort" for mortality.
+
+-   `J`: number of health-outcomes to study.
+
+Moreover, it is necessary to add to the data the name of the areas of the cartography (`NAME_1`).
+
+```{r}
+n <- length(unique(data$ID_area))
+dis <- c("inc","mort")
+J <- length(dis)
+
+
+data$NAME_1 <- carto$NAME_1
+```
+
+Finally, we define the folders to save the results. We create a folder called `Coverage_100` and inside we create two folders, one for each type of model, SCM and M-models. The name of these folders are `SCM`and `M_Model` respectively.
+
+```{r}
+eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_100'))
+{dir.create('./",cancer.location,"/Coverage_100')}")))
+
+eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_100/SCM'))
+{dir.create('./",cancer.location,"/Coverage_100/SCM')}")))
+
+eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_100/M_Model'))
+{dir.create('./",cancer.location,"/Coverage_100/M_Model')}")))
+
+```
+
+### Shared Component Models
+
+Mentioned above, we need to define the data in a specific way to fit each type of the multivariate models proposed in the paper. Then, to fit the SCMs we define `data_SCM` composed by the variables:
+
+-   `ID_area`: a region index. Takes values 1 to 16.
+
+-   `population`: population.
+
+-   `counts`: observed incidence and mortality counts.
+
+-   `health_outcome`: takes value "inc" for cancer incidence and value "mort" for cancer mortality.
+
+-   `NAME_1`: name of the region.
+
+-   `ID_type`: takes value 1 for cancer incidence and value 2 for cancer mortality.
+
+```{r}
+data_SCM <- data
+data_SCM$ID_type <- rep(c(1,2),each=n)  
+```
+
+Once we have defined the data in the specific way to be able to fit the SCMs, in a first step we fit the models when we have 100% of coverage, i.e. when we know the incidence data in all the areas under study. In this way we can see how the models work when all the data are available.
+
+As we have defined previously the folders where we will save the results, we fit the proposed SCMs. For each model defined in the paper an R file has been created with the implementation code. The name of these files are `SharedModels_Model1.R`, `SharedModels_Model2.R` and `SharedModels_Model3.R` for Model 1, Model 2 and Model 3 respectively. Then we save the results.
+
+```{r}
+################################################################################
+##########                   Shared Component Model                   ##########
+################################################################################
+
+##Data
+Data_sim <- data_SCM
+
+source("./functions/SharedModels_Model1.R")
+source("./functions/SharedModels_Model2.R")
+source("./functions/SharedModels_Model3.R")
+
+save(result_shared_unst, file= paste0("./",cancer.location,"/Coverage_100/SCM/Model1_",cancer.location,"_cancer.RData"))
+save(result_shared_unst2, file= paste0("./",cancer.location,"/Coverage_100/SCM/Model2_",cancer.location,"_cancer.RData"))
+save(result_shared_unst2_indep, file= paste0("./",cancer.location,"/Coverage_100/SCM/Model3_",cancer.location,"_cancer.RData"))
+```
+
+### M-models
+
+To fit the M-models we define a vector with two lists, `data_MM`. Each list correspond to the data of each health outcome. In this case we have a list for incidence data and another list for mortality data. The name of the lists are the names define in the variable `dis`. It is important to define the region index variable with the same name as the region index cartography variable, i.e. `ID_1`. Therefore, each list is composed by:
+
+-   `NAME_1`: name of the region.
+-   `ID_1`: a region index. Takes values 1 to 16.
+-   `counts`: observed incidence and mortality counts.
+-   `population`: population.
+
+```{r}
+data_MM<- vector('list',J)
+names(data_MM)<- dis
+
+data_MM[[1]] <- data[data$health_outcome==dis[1],c("NAME_1", 'ID_area', 'counts', 'population')]
+data_MM[[2]] <- data[data$health_outcome==dis[2],c("NAME_1", 'ID_area', 'counts', 'population')]
+
+##colname ID_area --> ID_1
+colnames(data_MM[[1]])[2] <- 'ID_1'
+colnames(data_MM[[2]])[2] <- 'ID_1'
+```
+
+To fit the M-models proposed in the paper, we need to define the spatial priors and the modeling method we want to use. Then, as in the SCMs, an R file has been created with the implementation code. The name of this file is `Mmodels_Model4.R`. Finally, we save the results.
+
+```{r}
+################################################################################
+##########                            M-Model                         ##########
+################################################################################
+
+priors <- c("iCAR","LCAR","pCAR","BYM","BYM2")
+method <- c("FE","RE")
+
+##Data
+Data_sim2 <- data_MM
+
+#Run the Mmodels:
+source("./functions/Mmodels_Model4.R")
+#Save results
+
+##Mmodels results:
+for (l in 1:length(priors)) {
+  for (k in 1:length(method)) {
+    eval(parse(text=paste0("save(result_",priors[l],"_",method[k],"_specI, file='./",cancer.location,"/Coverage_100/M_Model/MModel_results_",cancer.location,"_",priors[l],"_",method[k],".RData')")))
+
+  }
+}
+
+```
+
+### Strategy 1
+
+In this section we have the code necessary to obtain the results of strategy 1 defined in the paper. To do this, in a first step we define the percentages of coverage (`known.per`) that we are going to analyse and the name of the strategy (`removing.strategy`). In addition we create a list with the index of the areas that are going to be considered as missing (`missing.areas`).
+
+```{r}
+
+known.per <- c("90-80","70-60","50","40","30")
+removing.strategy <- "S1"
+
+missing.areas <- list(
+    c(2,5),
+    c(2,5,16,7,8,6),
+    c(2,5,16,7,8,6,13,4,15),
+    c(2,5,16,7,8,6,13,4,15,3,14),
+    c(2,5,16,7,8,6,13,4,15,3,14,9)
+)
+
+```
+
+Then, we fit the proposed SCMs for each percentage of coverage. First, we define the data to be used with each percentage of coverage. To do this, we define as `NA` the count of cancer incidence data in the areas defined as missing. Second, we create the folders to save the results. We create a folder for each percentage of coverage, called `Coverage_90-80`, `Coverage_70-60` and so on. And inside each folder we create a folder called `SCM`. Then we call the files `SharedModels_Model1.R`, `SharedModels_Model2.R` and `SharedModels_Model3.R` that contain the code to fit the SCMs. Finally we save the results.
+
+```{r}
+for (kp in 1:length(known.per)) {
+  
+  ##Data
+  Data_sim <- data_SCM
+  #missing values
+  for (ma in 1:length(missing.areas[[kp]])) {
+    Data_sim$counts[which(Data_sim$health_outcome=="inc" & Data_sim$ID_area==
+                            missing.areas[[kp]][ma])] <- NA
+  }
+  
+  ################################################################################
+  ##########                   Shared Component Model                   ##########
+  ################################################################################
+
+  ## Folder to save results
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"/SCM'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"/SCM')}")))
+
+
+  source("./functions/SharedModels_Model1.R")
+  source("./functions/SharedModels_Model2.R")
+  source("./functions/SharedModels_Model3.R")
+
+  save(result_shared_unst, file= paste0("./",cancer.location,"/Coverage_",known.per[kp],"/SCM/Model1_",cancer.location,"_cancer_",removing.strategy,".RData"))
+  save(result_shared_unst2, file= paste0("./",cancer.location,"/Coverage_",known.per[kp],"/SCM/Model2_",cancer.location,"_cancer_",removing.strategy,".RData"))
+  save(result_shared_unst2_indep, file= paste0("./",cancer.location,"/Coverage_",known.per[kp],"/SCM/Model3_",cancer.location,"_cancer_",removing.strategy,".RData"))
+
+}
+```
+
+We follow the same procedure as in the SCMs, but in this case we need to define the spatial priors and the modeling method used, a folder called M_model and call the file `Mmodels_Model4.R`.
+
+```{r}
+
+for (kp in 1:length(known.per)) {
+  ##Data
+  Data_sim2 <- data_MM
+  #missing values
+  for (ma in 1:length(missing.areas[[kp]])) {
+    Data_sim2$inc$counts[which(Data_sim2$inc$ID_1==
+                            missing.areas[[kp]][ma])] <- NA
+  }
+
+  
+  ################################################################################
+  ##########                            M-Model                         ##########
+  ################################################################################
+  
+  priors <- c("iCAR","LCAR","pCAR","BYM","BYM2")
+  method <- c("FE","RE")
+  
+  ## Folder to save results
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"/M_model'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"/M_model')}")))
+  
+  
+  #Run the Mmodels:
+  source("./functions/Mmodels_Model4.R")
+  #Save results
+  
+  ##Mmodels results:
+  for (l in 1:length(priors)) {
+    for (k in 1:length(method)) {
+      eval(parse(text=paste0("save(result_",priors[l],"_",method[k],"_specI, file='./",cancer.location,"/Coverage_",known.per[kp],"/M_Model/MModel_results_",cancer.location,"_",priors[l],"_",method[k],"_",removing.strategy,".RData')")))
+  
+    }
+  }
+}
+```
+
+### Strategy 2
+
+In this section we have the code necessary to obtain the results of Strategy 2 defined in the paper. The procedure is the same as in Strategy 1.
+
+```{r}
+
+known.per <- c("90-80","70-60","50","40","30")
+removing.strategy <- "S2"
+
+missing.areas <- list(
+  c(1,11),
+  c(1,11,2,4,5),
+  c(1,11,2,4,5,7,6,15),
+  c(1,11,2,4,5,7,6,15,3,14),
+  c(1,11,2,4,5,7,6,15,3,14,9)
+)
+
+```
+
+```{r}
+for (kp in 1:length(known.per)) {
+  
+  ##Data
+  Data_sim <- data_SCM
+  #missing values
+  for (ma in 1:length(missing.areas[[kp]])) {
+    Data_sim$counts[which(Data_sim$health_outcome=="inc" & Data_sim$ID_area==
+                            missing.areas[[kp]][ma])] <- NA
+  }
+  
+  ################################################################################
+  ##########                   Shared Component Model                   ##########
+  ################################################################################
+
+  ## Folder to save results
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"/SCM'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"/SCM')}")))
+
+
+  source("./functions/SharedModels_Model1.R")
+  source("./functions/SharedModels_Model2.R")
+  source("./functions/SharedModels_Model3.R")
+
+  save(result_shared_unst, file= paste0("./",cancer.location,"/Coverage_",known.per[kp],"/SCM/Model1_",cancer.location,"_cancer_",removing.strategy,".RData"))
+  save(result_shared_unst2, file= paste0("./",cancer.location,"/Coverage_",known.per[kp],"/SCM/Model2_",cancer.location,"_cancer_",removing.strategy,".RData"))
+  save(result_shared_unst2_indep, file= paste0("./",cancer.location,"/Coverage_",known.per[kp],"/SCM/Model3_",cancer.location,"_cancer_",removing.strategy,".RData"))
+
+}
+```
+
+```{r}
+
+for (kp in 1:length(known.per)) {
+  ##Data
+  Data_sim2 <- data_MM
+  #missing values
+  for (ma in 1:length(missing.areas[[kp]])) {
+    Data_sim2$inc$counts[which(Data_sim2$inc$ID_1==
+                            missing.areas[[kp]][ma])] <- NA
+  }
+
+  
+  ################################################################################
+  ##########                            M-Model                         ##########
+  ################################################################################
+  
+  priors <- c("iCAR","LCAR","pCAR","BYM","BYM2")
+  method <- c("FE","RE")
+  
+  ## Folder to save results
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"/M_model'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"/M_model')}")))
+  
+  
+  #Run the Mmodels:
+  source("./functions/Mmodels_Model4.R")
+  #Save results
+  
+  ##Mmodels results:
+  for (l in 1:length(priors)) {
+    for (k in 1:length(method)) {
+      eval(parse(text=paste0("save(result_",priors[l],"_",method[k],"_specI, file='./",cancer.location,"/Coverage_",known.per[kp],"/M_Model/MModel_results_",cancer.location,"_",priors[l],"_",method[k],"_",removing.strategy,".RData')")))
+  
+    }
+  }
+}
+```
+
+### Strategy 3
+
+In this section we have the code necessary to obtain the results of Strategy 3 defined in the paper. The procedure is the same as in Strategy 1.
+
+```{r}
+
+known.per <- c("90-80","70-60","50","40","30","20")
+removing.strategy <- "S3"
+
+missing.areas <- list(
+    c(1),
+    c(1,7),
+    c(1,7,10),
+    c(1,7,10,9),
+    c(1,7,10,9,2,5,15),
+    c(1,7,10,9,2,5,15,3,12)
+)
+
+```
+
+```{r}
+for (kp in 1:length(known.per)) {
+  
+  ##Data
+  Data_sim <- data_SCM
+  #missing values
+  for (ma in 1:length(missing.areas[[kp]])) {
+    Data_sim$counts[which(Data_sim$health_outcome=="inc" & Data_sim$ID_area==
+                            missing.areas[[kp]][ma])] <- NA
+  }
+  
+  ################################################################################
+  ##########                   Shared Component Model                   ##########
+  ################################################################################
+
+  ## Folder to save results
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"/SCM'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"/SCM')}")))
+
+
+  source("./functions/SharedModels_Model1.R")
+  source("./functions/SharedModels_Model2.R")
+  source("./functions/SharedModels_Model3.R")
+
+  save(result_shared_unst, file= paste0("./",cancer.location,"/Coverage_",known.per[kp],"/SCM/Model1_",cancer.location,"_cancer_",removing.strategy,".RData"))
+  save(result_shared_unst2, file= paste0("./",cancer.location,"/Coverage_",known.per[kp],"/SCM/Model2_",cancer.location,"_cancer_",removing.strategy,".RData"))
+  save(result_shared_unst2_indep, file= paste0("./",cancer.location,"/Coverage_",known.per[kp],"/SCM/Model3_",cancer.location,"_cancer_",removing.strategy,".RData"))
+
+}
+```
+
+```{r}
+
+for (kp in 1:length(known.per)) {
+  ##Data
+  Data_sim2 <- data_MM
+  #missing values
+  for (ma in 1:length(missing.areas[[kp]])) {
+    Data_sim2$inc$counts[which(Data_sim2$inc$ID_1==
+                            missing.areas[[kp]][ma])] <- NA
+  }
+
+  
+  ################################################################################
+  ##########                            M-Model                         ##########
+  ################################################################################
+  
+  priors <- c("iCAR","LCAR","pCAR","BYM","BYM2")
+  method <- c("FE","RE")
+  
+  ## Folder to save results
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"')}")))
+
+  eval(parse(text = paste0("if(!file.exists('./",cancer.location,"/Coverage_",known.per[kp],"/M_model'))
+  {dir.create('./",cancer.location,"/Coverage_",known.per[kp],"/M_model')}")))
+  
+  
+  #Run the Mmodels:
+  source("./functions/Mmodels_Model4.R")
+  #Save results
+  
+  ##Mmodels results:
+  for (l in 1:length(priors)) {
+    for (k in 1:length(method)) {
+      eval(parse(text=paste0("save(result_",priors[l],"_",method[k],"_specI, file='./",cancer.location,"/Coverage_",known.per[kp],"/M_Model/MModel_results_",cancer.location,"_",priors[l],"_",method[k],"_",removing.strategy,".RData')")))
+  
+    }
+  }
+}
+```
+
+### 
