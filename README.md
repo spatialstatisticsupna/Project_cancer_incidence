@@ -1,4 +1,4 @@
-# A new approach to project cancer incidence in regions without population-based cancer registry from mortality data
+# A new approach to project cancer incidence in regions without population-based cancer registry
 
 This repository contains the R code to fit in INLA the shared component models and the M-models, and the code to replicate and reproduce the simulation study described in "A new approach to project cancer incidence in regions without population-based cancer registry from mortality data".
 
