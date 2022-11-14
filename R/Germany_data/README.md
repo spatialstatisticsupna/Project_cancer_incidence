@@ -1,14 +1,14 @@
 # German data
 
-This folder contains the necessary R code to fit the multivariate models used in the paper and the results obtained. Due to confidentiality, incidence and mortality data from Germany are not shown in the repository. Therefore, some modifications have been made to the data in order to replicate the analysis performed.
+This folder contains the necessary R code to fit the multivariate models used in the paper and the results obtained. Due to confidentiality issues, incidence and mortality data from Germany are not shown in the repository. Therefore, some modifications have been made to the data in order to replicate the data analysis.
 
-In the Data folder the cartography used and the modified German incidence and mortality data for each cancer location analysed can be found. The cancer locations analysed have been lung cancer in females, prostate cancer and breast cancer, for which data can be found in lungF.rda, prostate.rda and breast.rda respectively. These data sets consist of the variables:
+In the data folder one may find the cartography and the modified German incidence and mortality data for each cancer location: lung and breast cancer (females), and prostate cancer. Files named  lungF.rda,  breast.rda, and prostate.rda, respectively. The data files have the following varibales:
 
- - ID_area: a region index. Takes values 1 to 16.
+ - ID_area: a region index. Takes values 1 to 16
 
  - population: population
 
-- counts: observed incidence and mortality counts.
+ - counts: observed incidence and mortality counts (one after the other)
 
 - health_outcome: takes value "inc" for cancer incidence and value "mort" for cancer mortality.
 
