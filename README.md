@@ -13,14 +13,14 @@ This repository contains the R code to fit in INLA the shared component models a
 
 # Note <a name="Note"/>
 
-Due to confidentiality issue the original data provided by the German Centre for Cancer Registry Data, ZfKD, used in the paper has been modified. So the code used in the paper and presented [here](https://github.com/GaraziRetegui/A_new_approach_to_project_cancer_incidence_in_regions_without_population_based_cancer_registry/tree/main/R), can be used to replicate but not to reproduce the results shown with German incidence and mortality cancer data.
+Due to confidentiality issue the original data provided by the German Centre for Cancer Registry Data, ZfKD, used in the paper has been modified. So the code used in the paper and presented [here](https://github.com/spatialstatisticsupna/Project_cancer_incidence/tree/main/R), can be used to replicate but not to reproduce the results shown with German incidence and mortality cancer data.
 
 # R code <a name="Rcode"/>
 This folder contains the R code to replicate the spatial multivariate models and to replicate and reproduce the simulation study described in the paper.
 
-The code to replicate the spatial multivariate models and the results obtained with German cancer data can be found [here](https://github.com/GaraziRetegui/A_new_approach_to_project_cancer_incidence_in_regions_without_population_based_cancer_registry/tree/main/R/Germany_data).
+The code to replicate the spatial multivariate models and the results obtained with German cancer data can be found [here](https://github.com/spatialstatisticsupna/Project_cancer_incidence/tree/main/R/Germany_data).
 
-The code to replicate and reproduce the simulation study and to reproduce the results obtained in the simulation study can be found [here](https://github.com/GaraziRetegui/A_new_approach_to_project_cancer_incidence_in_regions_without_population_based_cancer_registry/tree/main/R/Spanish_Simulation_Study).
+The code to replicate and reproduce the simulation study and to reproduce the results obtained in the simulation study can be found [here](https://github.com/spatialstatisticsupna/Project_cancer_incidence/tree/main/R/Spanish_Simulation_Study).
 
 # Acknowledgements <a name="Acknowledgements"/>
 We would like to thank the Centre for Cancer Registry Data (ZfKD), Germany, for providing data on federal state level.
