@@ -30,3 +30,5 @@ This work has been supported by Project PID2020-113125RB-I00 (AEI), Proyecto Jó
 ![plot](https://github.com/spatialstatisticsupna/Estimating_LOCP_cancer_mortality_rates/blob/main/micin-aei.jpg)
 
 # References <a name="Ref"/>
+
+Retegui, G., Etxeberria, J., Riebler, A. and Ugarte, MD (2023). Predicting cancer incidence in regions without population-based cancer registry using mortality. Under revision at Journal of the Royal Statistical Society Series A (minor revision).
