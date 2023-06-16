@@ -1,6 +1,6 @@
 # Predicting cancer incidence in regions without population-based cancer registry using mortality 
 
-This repository contains the R code to fit in INLA the shared component models and the M-models, and the code to replicate and reproduce the simulation study described in the paper "Predicting cancer incidence in regions without population-based cancer registry using mortality".
+This repository contains the R code to fit in INLA the shared component models and the M-models, and the code to replicate and reproduce the simulation study described in the paper _"Predicting cancer incidence in regions without population-based cancer registry using mortality"_ [(Retegui et al., 2023)](https://doi.org/10.1093/jrsssa/qnad077).
 
 ## Table of contents
 
@@ -31,4 +31,4 @@ This work has been supported by Project PID2020-113125RB-I00 (AEI), Proyecto Jó
 
 # References <a name="Ref"/>
 
-Retegui, G., Etxeberria, J., Riebler, A. and Ugarte, MD (2023). Predicting cancer incidence in regions without population-based cancer registry using mortality. Under revision at Journal of the Royal Statistical Society Series A (minor revision).
+[Retegui, G., Etxeberria, J., Riebler, A. and Ugarte, MD (2023). Predicting cancer incidence in regions without population-based cancer registry using mortality. _Journal of the Royal Statistical Society Series A (published online)_](https://doi.org/10.1093/jrsssa/qnad077)
