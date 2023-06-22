@@ -31,4 +31,4 @@ This work has been supported by Project PID2020-113125RB-I00 (AEI), Proyecto Jó
 
 # References <a name="Ref"/>
 
-[Retegui, G., Etxeberria, J., Riebler, A. and Ugarte, MD (2023). Predicting cancer incidence in regions without population-based cancer registry using mortality. _Journal of the Royal Statistical Society Series A qnad077, doi: https://doi.org/10.1093/jrsssa/qnad077_](https://doi.org/10.1093/jrsssa/qnad077)
+[Retegui, G., Etxeberria, J., Riebler, A. and Ugarte, MD (2023). Predicting cancer incidence in regions without population-based cancer registry using mortality. _Journal of the Royal Statistical Society Series A, qnad077, doi: https://doi.org/10.1093/jrsssa/qnad077_](https://doi.org/10.1093/jrsssa/qnad077)
